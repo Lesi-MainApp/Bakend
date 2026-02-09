@@ -1,4 +1,3 @@
-// backend/application/class.js
 import mongoose from "mongoose";
 import ClassModel from "../infastructure/schemas/class.js";
 import Grade from "../infastructure/schemas/grade.js";
@@ -12,8 +11,6 @@ const validateTeachers = async (teacherIds) => {
   if (!Array.isArray(teacherIds)) {
     return { ok: false, code: 400, message: "teacherIds must be an array" };
   }
-
-  // ✅ REQUIRED: at least 1 teacher
   if (teacherIds.length === 0) {
     return { ok: false, code: 400, message: "Please select at least one teacher" };
   }
@@ -39,12 +36,10 @@ const validateGradeAndSubject = async ({ gradeId, subjectId }) => {
   const grade = await Grade.findById(gradeId).lean();
   if (!grade) return { ok: false, code: 404, message: "Grade not found" };
 
-  // ✅ Only 1-11 allowed
   if (!is1to11(grade.grade)) {
     return { ok: false, code: 400, message: "Class is only allowed for grades 1-11" };
   }
 
-  // ✅ subject must belong to grade.subjects[]
   const validSubjectIds = new Set((grade.subjects || []).map((s) => String(s._id)));
   if (!validSubjectIds.has(String(subjectId))) {
     return { ok: false, code: 400, message: "subjectId does not belong to this grade" };
@@ -53,14 +48,17 @@ const validateGradeAndSubject = async ({ gradeId, subjectId }) => {
   return { ok: true, grade };
 };
 
-// =======================================================
 // CREATE CLASS
-// POST /api/class
-// Body: { className, gradeId, subjectId, teacherIds[] }
-// =======================================================
 export const createClass = async (req, res) => {
   try {
-    const { className, gradeId, subjectId, teacherIds = [] } = req.body;
+    const {
+      className,
+      gradeId,
+      subjectId,
+      teacherIds = [],
+      imageUrl = "",
+      imagePublicId = "",
+    } = req.body;
 
     if (!className || !gradeId || !subjectId) {
       return res.status(400).json({ message: "className, gradeId, subjectId are required" });
@@ -80,6 +78,8 @@ export const createClass = async (req, res) => {
       gradeId,
       subjectId,
       teacherIds,
+      imageUrl: String(imageUrl || "").trim(),
+      imagePublicId: String(imagePublicId || "").trim(),
       createdBy: req.user?.id || null,
     });
 
@@ -93,10 +93,7 @@ export const createClass = async (req, res) => {
   }
 };
 
-// =======================================================
-// GET ALL CLASSES (ONLY grade 1-11)
-// GET /api/class
-// =======================================================
+// GET ALL CLASSES
 export const getAllClass = async (req, res) => {
   try {
     const list = await ClassModel.find()
@@ -105,7 +102,6 @@ export const getAllClass = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // ✅ filter to grade 1-11 only
     const filtered = list.filter((c) => is1to11(Number(c?.gradeId?.grade)));
 
     const classes = filtered.map((c) => {
@@ -114,11 +110,7 @@ export const getAllClass = async (req, res) => {
         (grade?.subjects || []).find((s) => String(s._id) === String(c.subjectId))
           ?.subject || "Unknown";
 
-      return {
-        ...c,
-        subjectName,
-        gradeNo: grade?.grade,
-      };
+      return { ...c, subjectName, gradeNo: grade?.grade };
     });
 
     return res.status(200).json({ classes });
@@ -128,10 +120,7 @@ export const getAllClass = async (req, res) => {
   }
 };
 
-// =======================================================
 // GET CLASS BY ID
-// GET /api/class/:classId
-// =======================================================
 export const getClassById = async (req, res) => {
   try {
     const { classId } = req.params;
@@ -143,8 +132,6 @@ export const getClassById = async (req, res) => {
       .lean();
 
     if (!doc) return res.status(404).json({ message: "Class not found" });
-
-    // ✅ If class belongs to grade 12/13, block returning (optional safety)
     if (!is1to11(Number(doc?.gradeId?.grade))) {
       return res.status(400).json({ message: "This class is not allowed (only grades 1-11)" });
     }
@@ -154,11 +141,7 @@ export const getClassById = async (req, res) => {
         ?.subject || "Unknown";
 
     return res.status(200).json({
-      class: {
-        ...doc,
-        subjectName,
-        gradeNo: doc.gradeId?.grade,
-      },
+      class: { ...doc, subjectName, gradeNo: doc.gradeId?.grade },
     });
   } catch (err) {
     console.error("getClassById error:", err);
@@ -166,11 +149,7 @@ export const getClassById = async (req, res) => {
   }
 };
 
-// =======================================================
-// UPDATE CLASS BY ID
-// PATCH /api/class/:classId
-// Body: { className?, gradeId?, subjectId?, teacherIds?, isActive? }
-// =======================================================
+// UPDATE CLASS
 export const updateClassById = async (req, res) => {
   try {
     const { classId } = req.params;
@@ -179,7 +158,8 @@ export const updateClassById = async (req, res) => {
     const doc = await ClassModel.findById(classId);
     if (!doc) return res.status(404).json({ message: "Class not found" });
 
-    const { className, gradeId, subjectId, teacherIds, isActive } = req.body;
+    const { className, gradeId, subjectId, teacherIds, isActive, imageUrl, imagePublicId } =
+      req.body;
 
     const newGradeId = gradeId !== undefined ? gradeId : doc.gradeId;
     const newSubjectId = subjectId !== undefined ? subjectId : doc.subjectId;
@@ -207,6 +187,9 @@ export const updateClassById = async (req, res) => {
     if (subjectId !== undefined) doc.subjectId = newSubjectId;
     if (isActive !== undefined) doc.isActive = Boolean(isActive);
 
+    if (imageUrl !== undefined) doc.imageUrl = String(imageUrl || "").trim();
+    if (imagePublicId !== undefined) doc.imagePublicId = String(imagePublicId || "").trim();
+
     await doc.save();
     return res.status(200).json({ message: "Class updated", class: doc });
   } catch (err) {
@@ -218,10 +201,7 @@ export const updateClassById = async (req, res) => {
   }
 };
 
-// =======================================================
-// DELETE CLASS BY ID
-// DELETE /api/class/:classId
-// =======================================================
+// DELETE CLASS
 export const deleteClassById = async (req, res) => {
   try {
     const { classId } = req.params;
@@ -237,8 +217,7 @@ export const deleteClassById = async (req, res) => {
   }
 };
 
-// ✅ PUBLIC (Student App)
-// GET /api/class/public?gradeNumber=4&subjectName=Maths
+// PUBLIC
 export const getClassesPublic = async (req, res) => {
   try {
     const gradeNumber = Number(req.query.gradeNumber);
@@ -251,11 +230,9 @@ export const getClassesPublic = async (req, res) => {
       return res.status(400).json({ message: "subjectName is required" });
     }
 
-    // ✅ find grade doc
     const gradeDoc = await Grade.findOne({ grade: gradeNumber, isActive: true }).lean();
     if (!gradeDoc) return res.status(404).json({ message: "Grade not found" });
 
-    // ✅ find subjectId by subjectName (case insensitive)
     const subjectObj = (gradeDoc.subjects || []).find(
       (s) => String(s?.subject || "").toLowerCase() === subjectName.toLowerCase()
     );
@@ -263,7 +240,6 @@ export const getClassesPublic = async (req, res) => {
       return res.status(404).json({ message: "Subject not found in this grade" });
     }
 
-    // ✅ classes for gradeId + subjectId (active only)
     const list = await ClassModel.find({
       gradeId: gradeDoc._id,
       subjectId: subjectObj._id,
@@ -273,17 +249,14 @@ export const getClassesPublic = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // ✅ response shape for mobile
     const classes = list.map((c) => ({
       _id: c._id,
       className: c.className,
       gradeNumber,
       subjectName: subjectObj.subject,
+      imageUrl: c.imageUrl || "",
       teacherCount: Array.isArray(c.teacherIds) ? c.teacherIds.length : 0,
-      teachers: (c.teacherIds || []).map((t) => ({
-        _id: t._id,
-        name: t.name,
-      })),
+      teachers: (c.teacherIds || []).map((t) => ({ _id: t._id, name: t.name })),
       createdAt: c.createdAt,
     }));
 

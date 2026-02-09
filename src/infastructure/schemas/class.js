@@ -1,4 +1,3 @@
-// backend/infastructure/schemas/class.js
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
@@ -14,6 +13,10 @@ const classSchema = new Schema(
 
     // ✅ assigned teachers (must be approved teachers)
     teacherIds: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
+
+    // ✅ NEW (image)
+    imageUrl: { type: String, default: "" },
+    imagePublicId: { type: String, default: "" },
 
     isActive: { type: Boolean, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },

@@ -8,22 +8,15 @@ import {
   getClassById,
   updateClassById,
   deleteClassById,
-
-  // ✅ NEW public
   getClassesPublic,
 } from "../application/class.js";
 
 const router = express.Router();
 
-/* =========================
-   ✅ PUBLIC (Student App)
-========================= */
-// GET /api/class/public?gradeNumber=4&subjectName=Maths
+// PUBLIC
 router.get("/public", getClassesPublic);
 
-/* =========================
-   ✅ ADMIN ONLY
-========================= */
+// ADMIN
 router.post("/", authenticate, authorize(["admin"]), createClass);
 router.get("/", authenticate, authorize(["admin"]), getAllClass);
 router.get("/:classId", authenticate, authorize(["admin"]), getClassById);

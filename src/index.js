@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+
 import liveRouter from "./api/live.js";
 import connectDB from "./infastructure/db.js";
 import userRouter from "./api/user.js";
@@ -15,9 +16,16 @@ import paperRouter from "./api/paper.js";
 import questionRouter from "./api/question.js";
 import attemptRouter from "./api/attempt.js";
 
+// ✅ NEW
+import uploadRouter from "./api/upload.js";
+
 const app = express();
 
-const allowedOrigins = ["http://localhost:5173", "http://localhost:8081","http://localhost:5174"];
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:8081",
+  "http://localhost:5174",
+];
 
 app.use(
   cors({
@@ -38,7 +46,11 @@ app.use(cookieParser());
 app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);
 app.use("/api/grade", gradeRouter);
-app.use("/api/class", classRouter)
+app.use("/api/class", classRouter);
+
+// ✅ NEW
+app.use("/api/upload", uploadRouter);
+
 app.use("/api/teacher", teacherAssignmentRouter);
 app.use("/api/live", liveRouter);
 app.use("/api/lesson", lessonRouter);
