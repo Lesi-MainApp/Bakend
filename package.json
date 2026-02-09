@@ -1,0 +1,39 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "check": "node --input-type=module -e \"import('./src/index.js')\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^1.25.0",
+    "@google/generative-ai": "^0.24.1",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "canvas": "^3.2.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "deepseek": "^0.0.2",
+    "deepseek-api": "^1.0.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.20.0",
+    "mongoose": "^8.19.3",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^7.0.12",
+    "openai": "^6.6.0",
+    "tesseract.js": "^6.0.1",
+    "twilio": "^5.10.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

@@ -1,0 +1,71 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# -------------------------------
+# DEPENDENCIES
+# -------------------------------
+node_modules/
+package-lock.json
+
+# -------------------------------
+# ENVIRONMENT FILES
+# -------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# -------------------------------
+# EXPO / REACT NATIVE BUILD FILES
+# -------------------------------
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# -------------------------------
+# NATIVE FILES
+# -------------------------------
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# -------------------------------
+# METRO
+# -------------------------------
+.metro-health-check*
+
+# -------------------------------
+# DEBUG / LOGS
+# -------------------------------
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# -------------------------------
+# macOS
+# -------------------------------
+.DS_Store
+*.pem
+
+# -------------------------------
+# TYPESCRIPT
+# -------------------------------
+*.tsbuildinfo
+
+# -------------------------------
+# GENERATED NATIVE FOLDERS
+# -------------------------------
+/ios
+/android
+
+# -------------------------------
+# IDE / EDITOR
+# -------------------------------
+.vscode/
+.idea/
