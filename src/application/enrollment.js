@@ -36,16 +36,15 @@ const classReadableDetails = async (classId) => {
 // =======================================================
 // STUDENT: REQUEST ENROLL
 // POST /api/enroll/request
-// Body: { classId }  (you may send name/phone but system uses logged-in student data)
+// Body: { classId, studentName, studentPhone }
 // =======================================================
 export const requestEnroll = async (req, res) => {
   try {
-    const { classId } = req.body;
+    const { classId, studentName, studentPhone } = req.body || {};
 
     if (!classId) return res.status(400).json({ message: "classId is required" });
     if (!isValidId(classId)) return res.status(400).json({ message: "Invalid classId" });
 
-    // ✅ logged-in student
     const student = await User.findById(req.user?.id).lean();
     if (!student || student.role !== "student") {
       return res.status(403).json({ message: "Only students can request enrollment" });
@@ -54,7 +53,6 @@ export const requestEnroll = async (req, res) => {
     const cls = await ClassModel.findById(classId).lean();
     if (!cls) return res.status(404).json({ message: "Class not found" });
 
-    // ✅ extra rule: classes are for grades 1-11 only (your system)
     const grade = await Grade.findById(cls.gradeId).lean();
     if (!grade) return res.status(404).json({ message: "Grade not found for this class" });
 
@@ -62,21 +60,27 @@ export const requestEnroll = async (req, res) => {
       return res.status(400).json({ message: "Enrollment allowed only for classes in grades 1-11" });
     }
 
-    // ✅ create (or return existing)
+    // ✅ take from modal first, fallback to user profile
+    const snapName = String(studentName || student.name || "").trim();
+    const snapPhone = String(studentPhone || student.phonenumber || "").trim();
+
+    if (!snapName) return res.status(400).json({ message: "studentName is required" });
+    if (!snapPhone) return res.status(400).json({ message: "studentPhone is required" });
+
     let doc;
     try {
       doc = await Enrollment.create({
         studentId: student._id,
         classId,
-        studentName: student.name,
-        studentPhone: student.phonenumber,
+        studentName: snapName,
+        studentPhone: snapPhone,
         status: "pending",
       });
     } catch (err) {
-      // duplicate request
       if (err.code === 11000) {
         const exist = await Enrollment.findOne({ studentId: student._id, classId }).lean();
         const classDetails = await classReadableDetails(classId);
+
         return res.status(200).json({
           message: "Request already exists",
           request: exist,
@@ -140,7 +144,15 @@ export const getPendingEnrollRequests = async (req, res) => {
     const enriched = [];
     for (const r of list) {
       const classDetails = await classReadableDetails(r.classId);
-      enriched.push({ ...r, classDetails });
+
+      // ✅ student email
+      const stu = await User.findById(r.studentId).select("email").lean();
+
+      enriched.push({
+        ...r,
+        studentEmail: stu?.email || "",
+        classDetails,
+      });
     }
 
     return res.status(200).json({ requests: enriched });
@@ -169,12 +181,7 @@ export const approveEnrollRequest = async (req, res) => {
     await doc.save();
 
     const classDetails = await classReadableDetails(doc.classId);
-
-    return res.status(200).json({
-      message: "Enrollment approved",
-      request: doc,
-      classDetails,
-    });
+    return res.status(200).json({ message: "Enrollment approved", request: doc, classDetails });
   } catch (err) {
     console.error("approveEnrollRequest error:", err);
     return res.status(500).json({ message: "Internal server error" });
@@ -200,12 +207,7 @@ export const rejectEnrollRequest = async (req, res) => {
     await doc.save();
 
     const classDetails = await classReadableDetails(doc.classId);
-
-    return res.status(200).json({
-      message: "Enrollment rejected",
-      request: doc,
-      classDetails,
-    });
+    return res.status(200).json({ message: "Enrollment rejected", request: doc, classDetails });
   } catch (err) {
     console.error("rejectEnrollRequest error:", err);
     return res.status(500).json({ message: "Internal server error" });

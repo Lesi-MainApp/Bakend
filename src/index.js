@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-
+import enrollRouter from "./api/enrollment.js";
 import liveRouter from "./api/live.js";
 import connectDB from "./infastructure/db.js";
 import userRouter from "./api/user.js";
@@ -11,7 +11,6 @@ import gradeRouter from "./api/grade.js";
 import teacherAssignmentRouter from "./api/teacherAssignment.js";
 import classRouter from "./api/class.js";
 import lessonRouter from "./api/lesson.js";
-import enrollRouter from "./api/enrollment.js";
 import paperRouter from "./api/paper.js";
 import questionRouter from "./api/question.js";
 import attemptRouter from "./api/attempt.js";
@@ -50,7 +49,6 @@ app.use("/api/class", classRouter);
 
 // ✅ NEW
 app.use("/api/upload", uploadRouter);
-
 app.use("/api/teacher", teacherAssignmentRouter);
 app.use("/api/live", liveRouter);
 app.use("/api/lesson", lessonRouter);

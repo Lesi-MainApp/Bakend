@@ -11,7 +11,13 @@ import {
   deleteLiveById,
 } from "../application/live.js";
 
+// ✅ NEW
+import { getStudentLives } from "../application/liveStudent.js";
+
 const router = express.Router();
+
+// ✅ STUDENT: enrolled lives only
+router.get("/student", authenticate, authorize(["student"]), getStudentLives);
 
 // ✅ admin only
 router.post("/", authenticate, authorize(["admin"]), createLive);

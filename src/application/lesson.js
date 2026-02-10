@@ -104,54 +104,8 @@ export const getAllLessons = async (req, res) => {
 // GET /api/lesson/class/:classId
 // - admin: always allowed
 // - student: only if enrolled + approved
-// =======================================================
-export const getLessonsByClassId = async (req, res) => {
-  try {
-    const { classId } = req.params;
-    if (!isValidId(classId)) return res.status(400).json({ message: "Invalid classId" });
 
-    const classDetails = await getClassDetails(classId);
-    if (!classDetails) return res.status(404).json({ message: "Class not found" });
 
-    // ✅ student permission
-    if (req.user?.role === "student") {
-      const ok = await canStudentViewClassLessons(req.user.id, classId);
-      if (!ok) return res.status(403).json({ message: "You are not enrolled or not approved for this class" });
-    }
-
-    const lessons = await Lesson.find({ classId })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return res.status(200).json({ lessons, classDetails });
-  } catch (err) {
-    console.error("getLessonsByClassId error:", err);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-// ✅ GET LESSON BY ID (admin or enrolled student)
-export const getLessonById = async (req, res) => {
-  try {
-    const { lessonId } = req.params;
-    if (!isValidId(lessonId)) return res.status(400).json({ message: "Invalid lessonId" });
-
-    const lesson = await Lesson.findById(lessonId).lean();
-    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
-
-    const classDetails = await getClassDetails(lesson.classId);
-
-    if (req.user?.role === "student") {
-      const ok = await canStudentViewClassLessons(req.user.id, lesson.classId);
-      if (!ok) return res.status(403).json({ message: "You are not enrolled or not approved for this class" });
-    }
-
-    return res.status(200).json({ lesson: { ...lesson, classDetails } });
-  } catch (err) {
-    console.error("getLessonById error:", err);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-};
 
 // ✅ UPDATE LESSON (admin only) - keep your existing
 export const updateLessonById = async (req, res) => {
@@ -207,3 +161,59 @@ export const deleteLessonById = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+
+
+export const getLessonsByClassId = async (req, res) => {
+  try {
+    const { classId } = req.params;
+
+    if (!isValidId(classId)) {
+      return res.status(400).json({ message: "Invalid classId" });
+    }
+
+    // ✅ Ensure class exists
+    const cls = await ClassModel.findById(classId).lean();
+    if (!cls) return res.status(404).json({ message: "Class not found" });
+
+    // ✅ IMPORTANT CHANGE:
+    // Allow any authenticated student/admin to view lessons
+    // (No enrollment check here)
+
+    const lessons = await Lesson.find({ classId, isActive: true })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({ lessons });
+  } catch (err) {
+    console.error("getLessonsByClassId error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const getLessonById = async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+
+    if (!isValidId(lessonId)) {
+      return res.status(400).json({ message: "Invalid lessonId" });
+    }
+
+    const lesson = await Lesson.findById(lessonId).lean();
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+    if (!lesson.isActive) return res.status(404).json({ message: "Lesson not found" });
+
+    // ✅ also allow any student/admin (no enrollment check)
+    return res.status(200).json({ lesson });
+  } catch (err) {
+    console.error("getLessonById error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/* -------------------------
+   Keep your existing exports
+   createLesson / updateLessonById / deleteLessonById / getAllLessons
+   unchanged below if already implemented
+------------------------- */
+

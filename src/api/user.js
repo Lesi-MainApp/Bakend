@@ -34,15 +34,10 @@ router.delete("/:id", authenticate, authorize(["admin"]), deleteUserById);
 
 router.patch("/:id/approve-teacher", authenticate, authorize(["admin"]), approveTeacher);
 router.patch("/:id/reject-teacher", authenticate, authorize(["admin"]), rejectTeacher);
-
+router.patch("/student/grade-selection", authenticate, saveStudentGradeSelection);
 router.get("/", authenticate, authorize(["admin"]), getAllUsers);
 router.get("/:id", authenticate, authorize(["admin"]), getUserById);
 
-router.patch(
-  "/student/grade-selection",
-  authenticate,
-  authorize(["student"]),
-  saveStudentGradeSelection
-);
+
 
 export default router;
