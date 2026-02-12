@@ -54,7 +54,7 @@ const attachMeta = async (paperLean) => {
 };
 
 /* =========================================================
-   ✅ ADMIN: FORM DATA (Grades + enums)
+   ✅ ADMIN: FORM DATA
    GET /api/paper/form-data
 ========================================================= */
 export const getPaperFormData = async (req, res) => {
@@ -68,6 +68,10 @@ export const getPaperFormData = async (req, res) => {
         attemptsAllowed: ATTEMPTS_ALLOWED,
         maxTimeMinutes: 180,
         maxQuestionCount: 50,
+
+        // ✅ Answer count rules (1..6)
+        minAnswerCount: 1,
+        maxAnswerCount: 6,
       },
       grades,
     });
@@ -93,7 +97,7 @@ export const createPaper = async (req, res) => {
       paperTitle,
       timeMinutes,
       questionCount,
-      oneQuestionAnswersCount = 5,
+      oneQuestionAnswersCount = 4, // ✅ default (1..6)
       createdPersonName,
 
       payment = "free",
@@ -123,9 +127,10 @@ export const createPaper = async (req, res) => {
     const qc = Number(questionCount);
     if (!qc || qc < 1 || qc > 50) return res.status(400).json({ message: "questionCount must be 1..50" });
 
+    // ✅ Answer count validate (1..6)
     const oq = Number(oneQuestionAnswersCount);
-    if (!oq || oq < 2 || oq > 10) {
-      return res.status(400).json({ message: "oneQuestionAnswersCount must be 2..10" });
+    if (!oq || oq < 1 || oq > 6) {
+      return res.status(400).json({ message: "oneQuestionAnswersCount must be 1..6" });
     }
 
     const creator = toStr(createdPersonName);
@@ -201,7 +206,6 @@ export const createPaper = async (req, res) => {
     });
 
     const paperWithMeta = await attachMeta(doc.toObject());
-
     return res.status(201).json({ message: "Paper created", paper: paperWithMeta });
   } catch (err) {
     console.error("createPaper error:", err);
@@ -234,7 +238,7 @@ export const getAllPapers = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ ADMIN: UPDATE PAPER (NOW supports grade/subject/stream edit)
+   ✅ ADMIN: UPDATE PAPER
    PATCH /api/paper/:paperId
 ========================================================= */
 export const updatePaperById = async (req, res) => {
@@ -245,7 +249,6 @@ export const updatePaperById = async (req, res) => {
     const existing = await Paper.findById(paperId).lean();
     if (!existing) return res.status(404).json({ message: "Paper not found" });
 
-    // ✅ decide target grade
     const nextGradeId = req.body.gradeId !== undefined ? req.body.gradeId : existing.gradeId;
     if (!isValidId(nextGradeId)) return res.status(400).json({ message: "Valid gradeId is required" });
 
@@ -259,8 +262,7 @@ export const updatePaperById = async (req, res) => {
 
     // ✅ grade-based subject/stream edits
     if (is1to11(gradeNo)) {
-      const nextSubjectId =
-        req.body.subjectId !== undefined ? req.body.subjectId : existing.subjectId;
+      const nextSubjectId = req.body.subjectId !== undefined ? req.body.subjectId : existing.subjectId;
 
       if (!isValidId(nextSubjectId)) {
         return res.status(400).json({ message: "subjectId is required for grades 1-11" });
@@ -273,8 +275,7 @@ export const updatePaperById = async (req, res) => {
       patch.streamId = null;
       patch.streamSubjectId = null;
     } else if (is12or13(gradeNo)) {
-      const nextStreamId =
-        req.body.streamId !== undefined ? req.body.streamId : existing.streamId;
+      const nextStreamId = req.body.streamId !== undefined ? req.body.streamId : existing.streamId;
       const nextStreamSubjectId =
         req.body.streamSubjectId !== undefined ? req.body.streamSubjectId : existing.streamSubjectId;
 
@@ -296,7 +297,6 @@ export const updatePaperById = async (req, res) => {
       return res.status(400).json({ message: "Invalid grade number" });
     }
 
-    // ✅ other fields (same validation)
     if (req.body.paperTitle !== undefined) {
       const v = toStr(req.body.paperTitle);
       if (!v) return res.status(400).json({ message: "paperTitle is required" });
@@ -329,9 +329,12 @@ export const updatePaperById = async (req, res) => {
       patch.questionCount = qc;
     }
 
+    // ✅ Answer count validate (1..6)
     if (req.body.oneQuestionAnswersCount !== undefined) {
       const oq = Number(req.body.oneQuestionAnswersCount);
-      if (!oq || oq < 2 || oq > 10) return res.status(400).json({ message: "oneQuestionAnswersCount must be 2..10" });
+      if (!oq || oq < 1 || oq > 6) {
+        return res.status(400).json({ message: "oneQuestionAnswersCount must be 1..6" });
+      }
       patch.oneQuestionAnswersCount = oq;
     }
 

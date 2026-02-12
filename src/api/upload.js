@@ -9,8 +9,16 @@ import { authorize } from "./middlewares/authrization.js";
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// ✅ test route
+router.get("/test", (req, res) => res.json({ ok: true, route: "/api/upload" }));
+
+/**
+ * ✅ POST /api/upload/question-image
+ * FormData field name: "image"
+ * Returns: { url, publicId }
+ */
 router.post(
-  "/class-image",
+  "/question-image",
   authenticate,
   authorize(["admin"]),
   upload.single("image"),
@@ -23,7 +31,7 @@ router.post(
 
       const result = await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
-          { folder: "classes", resource_type: "image" },
+          { folder: "questions", resource_type: "image" },
           (error, result) => {
             if (error) reject(error);
             else resolve(result);
@@ -39,7 +47,10 @@ router.post(
       });
     } catch (err) {
       console.error("Upload error:", err);
-      return res.status(500).json({ message: "Upload failed", error: err?.message || String(err) });
+      return res.status(500).json({
+        message: "Upload failed",
+        error: err?.message || String(err),
+      });
     }
   }
 );

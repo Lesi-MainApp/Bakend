@@ -1,7 +1,6 @@
 import express from "express";
-import { authenticate } from "../api/middlewares/authentication.js";
-import { authorize } from "../api/middlewares/authrization.js";
-
+import { authenticate } from "./middlewares/authentication.js";
+import { authorize } from "./middlewares/authrization.js";
 import {
   getPaperFormData,
   createPaper,
@@ -12,9 +11,7 @@ import {
 
 const router = express.Router();
 
-// ✅ admin only
 router.get("/form-data", authenticate, authorize(["admin"]), getPaperFormData);
-
 router.post("/", authenticate, authorize(["admin"]), createPaper);
 router.get("/", authenticate, authorize(["admin"]), getAllPapers);
 router.patch("/:paperId", authenticate, authorize(["admin"]), updatePaperById);
