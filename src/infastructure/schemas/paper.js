@@ -1,3 +1,4 @@
+// backend/infastructure/schemas/paper.js
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
@@ -25,6 +26,10 @@ const paperSchema = new Schema(
     payment: { type: String, enum: PAYMENT_TYPES, default: "free", index: true },
     amount: { type: Number, default: 0, min: 0 },
     attempts: { type: Number, default: 1, enum: ATTEMPTS_ALLOWED },
+
+    // ✅ publish fields
+    isPublished: { type: Boolean, default: false, index: true },
+    publishedAt: { type: Date, default: null },
 
     isActive: { type: Boolean, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
