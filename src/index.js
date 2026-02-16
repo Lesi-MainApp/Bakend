@@ -21,6 +21,9 @@ import questionRouter from "./api/question.js";
 // ✅ Cloudinary upload router
 import uploadRouter from "./api/upload.js";
 
+// ✅ NEW
+import languageRouter from "./api/language.js";
+
 const app = express();
 
 const allowedOrigins = [
@@ -62,6 +65,9 @@ app.use("/api/question", questionRouter);
 // ✅ Cloudinary upload endpoint base
 app.use("/api/upload", uploadRouter);
 
+// ✅ NEW language endpoint
+app.use("/api/language", languageRouter);
+
 // error handler
 app.use(GlobalErrorHandler);
 
@@ -71,4 +77,5 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
   console.log("✅ Mounted routes: /api/upload");
+  console.log("✅ Mounted routes: /api/language");
 });

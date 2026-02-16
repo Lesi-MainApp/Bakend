@@ -40,6 +40,13 @@ const userSchema = new Schema(
     town: { type: String, default: "" },
     address: { type: String, default: "" },
 
+    // ✅ LANGUAGE (NEW)
+    selectedLanguage: {
+      type: String,
+      enum: ["si", "en"],
+      default: "si",
+    },
+
     // ✅ GRADE SELECTION (LOCKED)
     selectedLevel: {
       type: String,
