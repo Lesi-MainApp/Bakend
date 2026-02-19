@@ -14,10 +14,9 @@ import {
 
 const router = express.Router();
 
-// ✅ student only
+// student only
 router.post("/start", authenticate, authorize(["student"]), startAttempt);
 
-// ✅ fetch questions for the attempt (no correct answers revealed)
 router.get("/questions/:attemptId", authenticate, authorize(["student"]), getAttemptQuestions);
 
 router.post("/answer", authenticate, authorize(["student"]), saveAnswer);

@@ -18,6 +18,9 @@ import enrollRouter from "./api/enrollment.js";
 import paperRouter from "./api/paper.js";
 import questionRouter from "./api/question.js";
 
+// ✅ ADD THIS (attempt router)
+import attemptRouter from "./api/attempt.js";
+
 // ✅ Cloudinary upload router
 import uploadRouter from "./api/upload.js";
 
@@ -62,6 +65,9 @@ app.use("/api/enroll", enrollRouter);
 app.use("/api/paper", paperRouter);
 app.use("/api/question", questionRouter);
 
+// ✅ FIX: MOUNT attempt routes
+app.use("/api/attempt", attemptRouter);
+
 // ✅ Cloudinary upload endpoint base
 app.use("/api/upload", uploadRouter);
 
@@ -78,4 +84,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
   console.log("✅ Mounted routes: /api/upload");
   console.log("✅ Mounted routes: /api/language");
+  console.log("✅ Mounted routes: /api/attempt"); // ✅ add log
 });
