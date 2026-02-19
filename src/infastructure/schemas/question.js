@@ -1,4 +1,3 @@
-// backend/infastructure/schemas/question.js
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
@@ -6,15 +5,17 @@ const questionSchema = new Schema(
   {
     paperId: { type: Schema.Types.ObjectId, ref: "Paper", required: true, index: true },
     questionNumber: { type: Number, required: true, min: 1, index: true },
+
     lessonName: { type: String, default: "", trim: true },
     question: { type: String, required: true, trim: true },
 
     answers: { type: [String], required: true, default: [] },
-    correctAnswerIndex: { type: Number, required: true, min: 0 },
+
+    // ✅ MULTI correct answers
+    correctAnswerIndexes: { type: [Number], required: true, default: [] },
 
     point: { type: Number, default: 5, min: 0 },
 
-    // ✅ explanation URL + explanation text
     explanationVideoUrl: { type: String, default: "", trim: true },
     explanationText: { type: String, default: "", trim: true },
 
@@ -26,6 +27,7 @@ const questionSchema = new Schema(
   { timestamps: true }
 );
 
+// unique per paper
 questionSchema.index({ paperId: 1, questionNumber: 1 }, { unique: true });
 
 const Question = mongoose.models.Question || mongoose.model("Question", questionSchema);

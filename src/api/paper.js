@@ -1,4 +1,3 @@
-// backend/api/paper.js
 import express from "express";
 import { authenticate } from "./middlewares/authentication.js";
 import { authorize } from "./middlewares/authrization.js";
@@ -9,8 +8,6 @@ import {
   updatePaperById,
   deletePaperById,
   publishPaperById,
-
-  // ✅ add this
   getPublishedPapersPublic,
 } from "../application/paper.js";
 

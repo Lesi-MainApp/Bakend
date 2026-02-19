@@ -1,10 +1,5 @@
-// backend/application/paper.js
 import mongoose from "mongoose";
-import Paper, {
-  PAPER_TYPES,
-  PAYMENT_TYPES,
-  ATTEMPTS_ALLOWED,
-} from "../infastructure/schemas/paper.js";
+import Paper, { PAPER_TYPES, PAYMENT_TYPES, ATTEMPTS_ALLOWED } from "../infastructure/schemas/paper.js";
 import Grade from "../infastructure/schemas/grade.js";
 import Question from "../infastructure/schemas/question.js";
 
@@ -18,13 +13,28 @@ const normalizePaperType = (v) => {
 
   const map = new Map([
     ["daily quiz", "Daily Quiz"],
+    ["dailyquizz", "Daily Quiz"],
+
     ["topic wise paper", "Topic wise paper"],
+    ["topic wise papers", "Topic wise paper"],
     ["topic-wise paper", "Topic wise paper"],
+    ["topic-wise papers", "Topic wise paper"],
+
     ["model paper", "Model paper"],
+    ["model papers", "Model paper"],
+
     ["past paper", "Past paper"],
+    ["past papers", "Past paper"],
   ]);
 
   return map.get(lower) || raw;
+};
+
+// ✅ accept "practice" from FE and map to schema enum "practise"
+const normalizePayment = (v) => {
+  const lower = toStr(v).toLowerCase();
+  if (lower === "practice") return "practise";
+  return lower;
 };
 
 const is1to11 = (g) => g >= 1 && g <= 11;
@@ -37,14 +47,14 @@ const readablePaperMeta = (paper, grade) => {
 
   if (is1to11(gNo)) {
     subject =
-      (grade.subjects || []).find((s) => String(s._id) === String(paper.subjectId))
-        ?.subject || "Unknown Subject";
+      (grade.subjects || []).find((s) => String(s._id) === String(paper.subjectId))?.subject ||
+      "Unknown Subject";
   } else if (is12or13(gNo)) {
     const st = (grade.streams || []).find((x) => String(x._id) === String(paper.streamId));
     stream = st?.stream || "Unknown Stream";
     subject =
-      (st?.subjects || []).find((s) => String(s._id) === String(paper.streamSubjectId))
-        ?.subject || "Unknown Subject";
+      (st?.subjects || []).find((s) => String(s._id) === String(paper.streamSubjectId))?.subject ||
+      "Unknown Subject";
   }
 
   return { grade: gNo, stream, subject };
@@ -60,7 +70,9 @@ const getProgressForPaper = async (paper) => {
     currentCount,
     remaining: Math.max(requiredCount - currentCount, 0),
     isComplete: currentCount >= requiredCount,
-    oneQuestionAnswersCount: Number(paper?.oneQuestionAnswersCount || 0),
+
+    // ✅ informational only
+    oneQuestionAnswersCount: Number(paper?.oneQuestionAnswersCount || 4),
   };
 };
 
@@ -148,7 +160,7 @@ export const createPaper = async (req, res) => {
     const creator = toStr(createdPersonName);
     if (!creator) return res.status(400).json({ message: "createdPersonName is required" });
 
-    const pay = toStr(payment).toLowerCase();
+    const pay = normalizePayment(payment);
     if (!PAYMENT_TYPES.includes(pay)) {
       return res.status(400).json({ message: `payment must be one of: ${PAYMENT_TYPES.join(", ")}` });
     }
@@ -371,7 +383,7 @@ export const updatePaperById = async (req, res) => {
     }
 
     if (req.body.payment !== undefined) {
-      const pay = toStr(req.body.payment).toLowerCase();
+      const pay = normalizePayment(req.body.payment);
       if (!PAYMENT_TYPES.includes(pay)) {
         return res.status(400).json({ message: `payment must be one of: ${PAYMENT_TYPES.join(", ")}` });
       }
@@ -465,8 +477,6 @@ export const publishPaperById = async (req, res) => {
 
 /* =========================================================
    ✅ PUBLIC: GET PUBLISHED PAPERS FOR STUDENT APP
-   GET /api/paper/public?gradeNumber=10&paperType=Model%20paper&subject=Science
-   GET /api/paper/public?gradeNumber=12&paperType=Model%20paper&stream=Maths&subject=Physics
 ========================================================= */
 export const getPublishedPapersPublic = async (req, res) => {
   try {
@@ -524,7 +534,6 @@ export const getPublishedPapersPublic = async (req, res) => {
 
     const papers = await Paper.find(query).sort({ createdAt: -1 }).lean();
 
-    // return minimal fields for mobile UI
     const formatted = papers.map((p) => ({
       _id: String(p._id),
       paperTitle: p.paperTitle,

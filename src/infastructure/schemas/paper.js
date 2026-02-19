@@ -1,4 +1,3 @@
-// backend/infastructure/schemas/paper.js
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
@@ -19,7 +18,8 @@ const paperSchema = new Schema(
     timeMinutes: { type: Number, required: true, min: 1, max: 180 },
     questionCount: { type: Number, required: true, min: 1, max: 50 },
 
-    oneQuestionAnswersCount: { type: Number, required: true, min: 1, max: 6 },
+    // ✅ IMPORTANT: keep as DEFAULT for UI, not strict rule for question answers
+    oneQuestionAnswersCount: { type: Number, default: 4, min: 1, max: 6 },
 
     createdPersonName: { type: String, required: true, trim: true },
 

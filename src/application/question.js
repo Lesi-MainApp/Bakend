@@ -5,6 +5,10 @@ import Question from "../infastructure/schemas/question.js";
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 const norm = (v) => String(v || "").trim();
 
+const uniqSortedNums = (arr) =>
+  [...new Set((arr || []).map(Number).filter((n) => Number.isFinite(n)))]
+    .sort((a, b) => a - b);
+
 const getPaperProgress = async (paperId) => {
   const paper = await Paper.findById(paperId).lean();
   if (!paper) return null;
@@ -18,7 +22,7 @@ const getPaperProgress = async (paperId) => {
     currentCount,
     remaining: Math.max(requiredCount - currentCount, 0),
     isComplete: currentCount >= requiredCount,
-    oneQuestionAnswersCount: Number(paper.oneQuestionAnswersCount || 0),
+    oneQuestionAnswersCount: Number(paper.oneQuestionAnswersCount || 4),
   };
 };
 
@@ -34,21 +38,28 @@ export const createQuestion = async (req, res) => {
       lessonName = "",
       question,
       answers,
-      correctAnswerIndex,
-      point = 5,
 
+      // ✅ new multi correct
+      correctAnswerIndexes,
+
+      // ✅ old single correct support (optional)
+      correctAnswerIndex,
+
+      point = 5,
       explanationVideoUrl = "",
       explanationText = "",
-
       imageUrl = "",
     } = req.body;
 
     if (!paperId || !isValidId(paperId)) {
       return res.status(400).json({ message: "Valid paperId is required" });
     }
-    if (questionNumber === undefined) {
-      return res.status(400).json({ message: "questionNumber is required" });
+
+    const qNo = Number(questionNumber);
+    if (!qNo || qNo < 1) {
+      return res.status(400).json({ message: "questionNumber must be >= 1" });
     }
+
     if (!norm(question)) {
       return res.status(400).json({ message: "question is required" });
     }
@@ -64,32 +75,33 @@ export const createQuestion = async (req, res) => {
       });
     }
 
-    // answers validation based on paper.oneQuestionAnswersCount
-    const requiredAnswers = Number(paper.oneQuestionAnswersCount || 0);
+    // ✅ answers: allow 1..6 (your requirement)
     if (!Array.isArray(answers)) {
       return res.status(400).json({ message: "answers must be an array" });
     }
 
     const cleanedAnswers = answers.map((a) => norm(a)).filter(Boolean);
+    if (cleanedAnswers.length < 1 || cleanedAnswers.length > 6) {
+      return res.status(400).json({ message: "answers must be 1..6 items" });
+    }
 
-    if (cleanedAnswers.length !== requiredAnswers) {
+    // ✅ correct indexes: accept array OR fallback single
+    let idxs = [];
+    if (Array.isArray(correctAnswerIndexes)) {
+      idxs = uniqSortedNums(correctAnswerIndexes);
+    } else if (correctAnswerIndex !== undefined && correctAnswerIndex !== null) {
+      idxs = uniqSortedNums([Number(correctAnswerIndex)]);
+    }
+
+    if (idxs.length < 1) {
+      return res.status(400).json({ message: "Select at least 1 correct answer" });
+    }
+
+    const bad = idxs.some((i) => i < 0 || i >= cleanedAnswers.length);
+    if (bad) {
       return res.status(400).json({
-        message: `This paper requires exactly ${requiredAnswers} answers per question`,
+        message: `correctAnswerIndexes must be between 0 and ${cleanedAnswers.length - 1}`,
       });
-    }
-
-    const qNo = Number(questionNumber);
-    if (!qNo || qNo < 1) {
-      return res.status(400).json({ message: "questionNumber must be >= 1" });
-    }
-
-    const correctIdx = Number(correctAnswerIndex);
-    if (
-      Number.isNaN(correctIdx) ||
-      correctIdx < 0 ||
-      correctIdx >= cleanedAnswers.length
-    ) {
-      return res.status(400).json({ message: "correctAnswerIndex is invalid" });
     }
 
     const doc = await Question.create({
@@ -98,13 +110,13 @@ export const createQuestion = async (req, res) => {
       lessonName: norm(lessonName),
       question: norm(question),
       answers: cleanedAnswers,
-      correctAnswerIndex: correctIdx,
-      point: Number(point || 5),
+      correctAnswerIndexes: idxs,
 
+      point: Number(point || 5),
       explanationVideoUrl: norm(explanationVideoUrl),
       explanationText: norm(explanationText),
-
       imageUrl: norm(imageUrl),
+
       createdBy: req.user?.id || null,
     });
 
@@ -118,9 +130,7 @@ export const createQuestion = async (req, res) => {
   } catch (err) {
     console.error("createQuestion error:", err);
     if (err?.code === 11000) {
-      return res
-        .status(409)
-        .json({ message: "Duplicate questionNumber for this paper" });
+      return res.status(409).json({ message: "Duplicate questionNumber for this paper" });
     }
     return res.status(500).json({
       message: "Internal server error",
@@ -137,19 +147,28 @@ export const createQuestion = async (req, res) => {
 export const getQuestionsByPaper = async (req, res) => {
   try {
     const { paperId } = req.params;
-    if (!isValidId(paperId))
-      return res.status(400).json({ message: "Invalid paperId" });
+    if (!isValidId(paperId)) return res.status(400).json({ message: "Invalid paperId" });
 
     const paper = await Paper.findById(paperId).lean();
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    const list = await Question.find({ paperId })
-      .sort({ questionNumber: 1 })
-      .lean();
+    const list = await Question.find({ paperId }).sort({ questionNumber: 1 }).lean();
+
+    // ✅ always normalize correctAnswerIndexes (supports old docs)
+    const normalized = list.map((q) => {
+      const multi = Array.isArray(q.correctAnswerIndexes) ? q.correctAnswerIndexes : [];
+      if (multi.length) return { ...q, correctAnswerIndexes: uniqSortedNums(multi) };
+
+      // old docs support
+      const oldIdx = Number(q.correctAnswerIndex);
+      if (Number.isFinite(oldIdx)) return { ...q, correctAnswerIndexes: [oldIdx] };
+
+      return { ...q, correctAnswerIndexes: [] };
+    });
 
     const progress = await getPaperProgress(paperId);
 
-    return res.status(200).json({ paper, questions: list, progress });
+    return res.status(200).json({ paper, questions: normalized, progress });
   } catch (err) {
     console.error("getQuestionsByPaper error:", err);
     return res.status(500).json({ message: "Internal server error" });
@@ -157,85 +176,85 @@ export const getQuestionsByPaper = async (req, res) => {
 };
 
 // =======================================================
-// ADMIN: UPDATE QUESTION (ONLY question + answers + correctAnswerIndex)
+// ADMIN: UPDATE QUESTION (multi correct supported)
 // PATCH /api/question/:questionId
 // =======================================================
 export const updateQuestionById = async (req, res) => {
   try {
     const { questionId } = req.params;
-    if (!isValidId(questionId)) {
-      return res.status(400).json({ message: "Invalid questionId" });
-    }
+    if (!isValidId(questionId)) return res.status(400).json({ message: "Invalid questionId" });
 
     const existing = await Question.findById(questionId).lean();
     if (!existing) return res.status(404).json({ message: "Question not found" });
 
-    // Only allow updating these fields:
-    const nextQuestion =
-      req.body.question !== undefined ? norm(req.body.question) : null;
-    const nextAnswersRaw =
-      req.body.answers !== undefined ? req.body.answers : null;
-    const nextCorrectIndex =
-      req.body.correctAnswerIndex !== undefined
-        ? Number(req.body.correctAnswerIndex)
-        : null;
-
     const patch = {};
 
-    if (nextQuestion !== null) {
-      if (!nextQuestion) return res.status(400).json({ message: "question is required" });
-      patch.question = nextQuestion;
+    if (req.body.question !== undefined) {
+      const v = norm(req.body.question);
+      if (!v) return res.status(400).json({ message: "question is required" });
+      patch.question = v;
     }
 
-    if (nextAnswersRaw !== null) {
-      if (!Array.isArray(nextAnswersRaw))
-        return res.status(400).json({ message: "answers must be an array" });
+    if (req.body.lessonName !== undefined) patch.lessonName = norm(req.body.lessonName);
+    if (req.body.explanationVideoUrl !== undefined) patch.explanationVideoUrl = norm(req.body.explanationVideoUrl);
+    if (req.body.explanationText !== undefined) patch.explanationText = norm(req.body.explanationText);
+    if (req.body.imageUrl !== undefined) patch.imageUrl = norm(req.body.imageUrl);
 
-      const cleanedAnswers = nextAnswersRaw.map((a) => norm(a)).filter(Boolean);
-      if (cleanedAnswers.length < 1) {
-        return res.status(400).json({ message: "answers must have at least 1 item" });
-      }
-      patch.answers = cleanedAnswers;
-
-      // if answers updated but correct index not provided, keep old index if valid
-      if (nextCorrectIndex === null) {
-        const oldIdx = Number(existing.correctAnswerIndex || 0);
-        patch.correctAnswerIndex =
-          oldIdx >= 0 && oldIdx < cleanedAnswers.length ? oldIdx : 0;
-      }
+    let nextAnswers = null;
+    if (req.body.answers !== undefined) {
+      if (!Array.isArray(req.body.answers)) return res.status(400).json({ message: "answers must be an array" });
+      const cleaned = req.body.answers.map((a) => norm(a)).filter(Boolean);
+      if (cleaned.length < 1 || cleaned.length > 6) return res.status(400).json({ message: "answers must be 1..6" });
+      nextAnswers = cleaned;
+      patch.answers = cleaned;
     }
 
-    if (nextCorrectIndex !== null) {
-      if (Number.isNaN(nextCorrectIndex) || nextCorrectIndex < 0) {
-        return res.status(400).json({ message: "correctAnswerIndex is invalid" });
+    // ✅ correct indexes update
+    let idxs = null;
+
+    if (req.body.correctAnswerIndexes !== undefined) {
+      if (!Array.isArray(req.body.correctAnswerIndexes)) {
+        return res.status(400).json({ message: "correctAnswerIndexes must be an array" });
       }
+      idxs = uniqSortedNums(req.body.correctAnswerIndexes);
+    } else if (req.body.correctAnswerIndex !== undefined) {
+      idxs = uniqSortedNums([Number(req.body.correctAnswerIndex)]);
+    }
 
-      // validate against either new answers (if provided) or existing answers
-      const answersToValidate =
-        patch.answers || existing.answers || [];
-
-      if (nextCorrectIndex >= answersToValidate.length) {
+    if (idxs !== null) {
+      if (idxs.length < 1) return res.status(400).json({ message: "Select at least 1 correct answer" });
+      const answersToValidate = nextAnswers || existing.answers || [];
+      const bad = idxs.some((i) => i < 0 || i >= answersToValidate.length);
+      if (bad) {
         return res.status(400).json({
-          message: `correctAnswerIndex must be between 0 and ${Math.max(
-            answersToValidate.length - 1,
-            0
-          )}`,
+          message: `correctAnswerIndexes must be between 0 and ${Math.max(answersToValidate.length - 1, 0)}`,
         });
       }
-
-      patch.correctAnswerIndex = nextCorrectIndex;
+      patch.correctAnswerIndexes = idxs;
+    } else if (nextAnswers) {
+      // answers changed but correct not sent -> keep old or [0]
+      const old = uniqSortedNums(existing.correctAnswerIndexes || []);
+      const filtered = old.filter((i) => i >= 0 && i < nextAnswers.length);
+      patch.correctAnswerIndexes = filtered.length ? filtered : [0];
     }
 
-    // If nothing to update
+    if (req.body.point !== undefined) patch.point = Number(req.body.point || 0);
+
     if (Object.keys(patch).length === 0) {
       return res.status(400).json({ message: "Nothing to update" });
     }
 
-    const updated = await Question.findByIdAndUpdate(questionId, patch, {
-      new: true,
-    }).lean();
+    const updated = await Question.findByIdAndUpdate(questionId, patch, { new: true }).lean();
 
-    return res.status(200).json({ message: "Question updated", question: updated });
+    return res.status(200).json({
+      message: "Question updated",
+      question: {
+        ...updated,
+        correctAnswerIndexes: Array.isArray(updated.correctAnswerIndexes)
+          ? uniqSortedNums(updated.correctAnswerIndexes)
+          : [],
+      },
+    });
   } catch (err) {
     console.error("updateQuestionById error:", err);
     return res.status(500).json({ message: "Internal server error" });
