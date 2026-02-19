@@ -1,9 +1,10 @@
 import express from "express";
-import { authenticate } from "../api/middlewares/authentication.js";
-import { authorize } from "../api/middlewares/authrization.js";
+import { authenticate } from "./middlewares/authentication.js";
+import { authorize } from "./middlewares/authrization.js";
 
 import {
   startAttempt,
+  getAttemptQuestions,
   saveAnswer,
   submitAttempt,
   myAttemptsByPaper,
@@ -15,6 +16,10 @@ const router = express.Router();
 
 // ✅ student only
 router.post("/start", authenticate, authorize(["student"]), startAttempt);
+
+// ✅ fetch questions for the attempt (no correct answers revealed)
+router.get("/questions/:attemptId", authenticate, authorize(["student"]), getAttemptQuestions);
+
 router.post("/answer", authenticate, authorize(["student"]), saveAnswer);
 router.post("/submit/:attemptId", authenticate, authorize(["student"]), submitAttempt);
 

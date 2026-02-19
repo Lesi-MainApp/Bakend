@@ -6,33 +6,29 @@ import PaperAttempt from "../infastructure/schemas/paperAttempt.js";
 import AttemptAnswer from "../infastructure/schemas/attemptAnswer.js";
 import User from "../infastructure/schemas/user.js";
 
-const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const is1to11 = (g) => g >= 1 && g <= 11;
 const is12or13 = (g) => g === 12 || g === 13;
 
-// helper to show readable grade/subject/stream names
 const readablePaperMeta = (paper, grade) => {
   const gNo = Number(grade?.grade);
-
   let subject = null;
   let stream = null;
 
   if (is1to11(gNo)) {
     subject =
-      (grade.subjects || []).find((s) => String(s._id) === String(paper.subjectId))?.subject || "Unknown Subject";
+      (grade.subjects || []).find((s) => String(s._id) === String(paper.subjectId))?.subject ||
+      "Unknown Subject";
   } else if (is12or13(gNo)) {
     const st = (grade.streams || []).find((x) => String(x._id) === String(paper.streamId));
     stream = st?.stream || "Unknown Stream";
     subject =
-      (st?.subjects || []).find((s) => String(s._id) === String(paper.streamSubjectId))?.subject || "Unknown Subject";
+      (st?.subjects || []).find((s) => String(s._id) === String(paper.streamSubjectId))?.subject ||
+      "Unknown Subject";
   }
 
-  return {
-    grade: gNo,
-    stream,
-    subject,
-  };
+  return { grade: gNo, stream, subject };
 };
 
 // =======================================================
@@ -44,18 +40,26 @@ export const startAttempt = async (req, res) => {
   try {
     const { paperId } = req.body;
 
-    if (!paperId || !isValidId(paperId)) return res.status(400).json({ message: "Valid paperId is required" });
+    if (!paperId || !isValidId(paperId)) {
+      return res.status(400).json({ message: "Valid paperId is required" });
+    }
 
     const student = await User.findById(req.user?.id).lean();
-    if (!student || student.role !== "student") return res.status(403).json({ message: "Only students can start attempt" });
+    if (!student || student.role !== "student") {
+      return res.status(403).json({ message: "Only students can start attempt" });
+    }
 
     const paper = await Paper.findById(paperId).lean();
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
+    if (!paper.isPublished || paper.isActive === false) {
+      return res.status(403).json({ message: "Paper not available" });
+    }
+
     const grade = await Grade.findById(paper.gradeId).lean();
     if (!grade) return res.status(404).json({ message: "Grade not found" });
 
-    // ✅ attempts limit (count only submitted attempts)
+    // attempts limit (count only submitted attempts)
     const used = await PaperAttempt.countDocuments({
       paperId,
       studentId: student._id,
@@ -70,7 +74,7 @@ export const startAttempt = async (req, res) => {
       });
     }
 
-    // if there is an in-progress attempt, return it (so user can continue)
+    // if in-progress attempt exists, return it
     const existing = await PaperAttempt.findOne({
       paperId,
       studentId: student._id,
@@ -81,6 +85,12 @@ export const startAttempt = async (req, res) => {
       return res.status(200).json({
         message: "Continue existing attempt",
         attempt: existing,
+        paper: {
+          _id: String(paper._id),
+          paperTitle: paper.paperTitle,
+          timeMinutes: Number(paper.timeMinutes || 0),
+          questionCount: Number(paper.questionCount || 0),
+        },
         meta: readablePaperMeta(paper, grade),
         attemptsUsed: used,
         attemptsAllowed: Number(paper.attempts || 1),
@@ -89,7 +99,7 @@ export const startAttempt = async (req, res) => {
 
     const attemptNo = used + 1;
 
-    // total possible points = sum of points of all questions in paper (if not created yet, fallback)
+    // total possible points
     const questions = await Question.find({ paperId }).select("point").lean();
     const totalPossiblePoints = questions.length
       ? questions.reduce((sum, q) => sum + Number(q.point || 0), 0)
@@ -111,12 +121,78 @@ export const startAttempt = async (req, res) => {
     return res.status(201).json({
       message: "Attempt started",
       attempt: doc,
+      paper: {
+        _id: String(paper._id),
+        paperTitle: paper.paperTitle,
+        timeMinutes: Number(paper.timeMinutes || 0),
+        questionCount: Number(paper.questionCount || 0),
+      },
       meta: readablePaperMeta(paper, grade),
       attemptsUsed: used,
       attemptsAllowed: Number(paper.attempts || 1),
     });
   } catch (err) {
     console.error("startAttempt error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// =======================================================
+// ✅ STUDENT: GET QUESTIONS (NO CORRECT ANSWERS)
+// GET /api/attempt/questions/:attemptId
+// =======================================================
+export const getAttemptQuestions = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
+
+    const student = await User.findById(req.user?.id).lean();
+    if (!student || student.role !== "student") return res.status(403).json({ message: "Only students" });
+
+    const attempt = await PaperAttempt.findById(attemptId).lean();
+    if (!attempt) return res.status(404).json({ message: "Attempt not found" });
+    if (String(attempt.studentId) !== String(student._id)) return res.status(403).json({ message: "Not your attempt" });
+
+    const paper = await Paper.findById(attempt.paperId).lean();
+    if (!paper) return res.status(404).json({ message: "Paper not found" });
+
+    const questions = await Question.find({ paperId: attempt.paperId, isActive: true })
+      .sort({ questionNumber: 1 })
+      .select("questionNumber lessonName question answers point explanationVideoUrl explanationText imageUrl")
+      .lean();
+
+    // existing answers (for resume)
+    const answers = await AttemptAnswer.find({ attemptId: attempt._id }).lean();
+    const ansMap = new Map(answers.map((a) => [String(a.questionId), a]));
+
+    const formatted = questions.map((q) => {
+      const a = ansMap.get(String(q._id));
+      return {
+        _id: String(q._id),
+        questionNumber: Number(q.questionNumber),
+        lessonName: q.lessonName || "",
+        question: q.question || "",
+        answers: Array.isArray(q.answers) ? q.answers : [],
+        point: Number(q.point || 0),
+        explanationVideoUrl: q.explanationVideoUrl || "",
+        explanationText: q.explanationText || "",
+        imageUrl: q.imageUrl || "",
+        selectedAnswerIndex: a ? Number(a.selectedAnswerIndex) : null,
+      };
+    });
+
+    return res.status(200).json({
+      attemptId: String(attempt._id),
+      paper: {
+        _id: String(paper._id),
+        paperTitle: paper.paperTitle,
+        timeMinutes: Number(paper.timeMinutes || 0),
+        questionCount: Number(paper.questionCount || 0),
+      },
+      questions: formatted,
+    });
+  } catch (err) {
+    console.error("getAttemptQuestions error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -146,12 +222,13 @@ export const saveAnswer = async (req, res) => {
 
     const q = await Question.findById(questionId).lean();
     if (!q) return res.status(404).json({ message: "Question not found" });
-    if (String(q.paperId) !== String(attempt.paperId)) return res.status(400).json({ message: "Question does not belong to this paper" });
+    if (String(q.paperId) !== String(attempt.paperId)) {
+      return res.status(400).json({ message: "Question does not belong to this paper" });
+    }
 
     const answerCount = (q.answers || []).length;
     if (idx >= answerCount) return res.status(400).json({ message: "selectedAnswerIndex out of range" });
 
-    // upsert answer
     const doc = await AttemptAnswer.findOneAndUpdate(
       { attemptId: attempt._id, questionId: q._id },
       {
@@ -164,7 +241,6 @@ export const saveAnswer = async (req, res) => {
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    // progress: how many answered
     const answeredCount = await AttemptAnswer.countDocuments({ attemptId: attempt._id });
 
     return res.status(200).json({
@@ -181,7 +257,7 @@ export const saveAnswer = async (req, res) => {
 };
 
 // =======================================================
-// STUDENT: SUBMIT ATTEMPT (calculate score)
+// ✅ STUDENT: SUBMIT ATTEMPT (MULTI CORRECT)
 // POST /api/attempt/submit/:attemptId
 // =======================================================
 export const submitAttempt = async (req, res) => {
@@ -207,8 +283,6 @@ export const submitAttempt = async (req, res) => {
     if (!questions.length) return res.status(400).json({ message: "No questions found for this paper" });
 
     const answers = await AttemptAnswer.find({ attemptId: attempt._id }).lean();
-
-    // map answers by questionId
     const ansMap = new Map(answers.map((a) => [String(a.questionId), a]));
 
     let correctCount = 0;
@@ -216,19 +290,20 @@ export const submitAttempt = async (req, res) => {
     let earned = 0;
     let possible = 0;
 
-    // calculate + update per answer correctness
     for (const q of questions) {
       const qPoint = Number(q.point || 0);
       possible += qPoint;
 
       const a = ansMap.get(String(q._id));
       if (!a) {
-        // unanswered counts as wrong
         wrongCount += 1;
         continue;
       }
 
-      const isCorrect = Number(a.selectedAnswerIndex) === Number(q.correctAnswerIndex);
+      const selected = Number(a.selectedAnswerIndex);
+
+      const correctList = Array.isArray(q.correctAnswerIndexes) ? q.correctAnswerIndexes : [];
+      const isCorrect = correctList.includes(selected);
 
       if (isCorrect) {
         correctCount += 1;
@@ -237,7 +312,6 @@ export const submitAttempt = async (req, res) => {
         wrongCount += 1;
       }
 
-      // update stored correctness for review
       await AttemptAnswer.updateOne(
         { _id: a._id },
         { $set: { isCorrect, earnedPoints: isCorrect ? qPoint : 0 } }
@@ -256,7 +330,6 @@ export const submitAttempt = async (req, res) => {
     attempt.percentage = percentage;
     await attempt.save();
 
-    // attempts used after submit
     const used = await PaperAttempt.countDocuments({
       paperId: attempt.paperId,
       studentId: student._id,
@@ -265,7 +338,7 @@ export const submitAttempt = async (req, res) => {
 
     return res.status(200).json({
       message: "Attempt submitted",
-      attemptId: attempt._id,
+      attemptId: String(attempt._id),
       attemptNo: attempt.attemptNo,
       attemptsUsed: used,
       attemptsAllowed: Number(paper.attempts || 1),
@@ -310,7 +383,7 @@ export const myAttemptsByPaper = async (req, res) => {
 };
 
 // =======================================================
-// STUDENT: SUMMARY (attempt results)
+// STUDENT: SUMMARY
 // GET /api/attempt/summary/:attemptId
 // =======================================================
 export const attemptSummary = async (req, res) => {
@@ -339,7 +412,7 @@ export const attemptSummary = async (req, res) => {
 };
 
 // =======================================================
-// STUDENT: REVIEW (wrong questions first)
+// ✅ STUDENT: REVIEW (wrong first, then correct)
 // GET /api/attempt/review/:attemptId
 // =======================================================
 export const attemptReview = async (req, res) => {
@@ -369,23 +442,31 @@ export const attemptReview = async (req, res) => {
       const a = ansMap.get(String(q._id)) || null;
       const selectedIndex = a ? Number(a.selectedAnswerIndex) : null;
 
+      const correctIdxs = Array.isArray(q.correctAnswerIndexes) ? q.correctAnswerIndexes : [];
       const isCorrect = a ? Boolean(a.isCorrect) : false;
 
+      const firstCorrectIndex = correctIdxs.length ? correctIdxs[0] : null;
+
       const item = {
-        questionId: q._id,
+        _id: String(q._id),
         questionNumber: q.questionNumber,
         lessonName: q.lessonName,
         question: q.question,
         answers: q.answers,
         point: q.point,
 
-        selectedAnswerIndex: selectedIndex,
+        selectedAnswerIndex,
         selectedAnswer: selectedIndex !== null ? q.answers?.[selectedIndex] : null,
 
-        correctAnswerIndex: q.correctAnswerIndex,
-        correctAnswer: q.answers?.[q.correctAnswerIndex] || null,
+        correctAnswerIndexes: correctIdxs,
+        correctAnswers: correctIdxs.map((i) => q.answers?.[i]).filter(Boolean),
+
+        // keep these for UI compatibility (first correct)
+        correctAnswerIndex: firstCorrectIndex,
+        correctAnswer: firstCorrectIndex !== null ? q.answers?.[firstCorrectIndex] : null,
 
         explanationVideoUrl: q.explanationVideoUrl || "",
+        explanationText: q.explanationText || "",
       };
 
       if (isCorrect) correct.push(item);
@@ -393,7 +474,7 @@ export const attemptReview = async (req, res) => {
     }
 
     return res.status(200).json({
-      attemptId: attempt._id,
+      attemptId: String(attempt._id),
       result: {
         totalQuestions: questions.length,
         correctCount: attempt.correctCount,
