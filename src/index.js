@@ -1,3 +1,4 @@
+// src/index.js
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -14,17 +15,12 @@ import classRouter from "./api/class.js";
 import lessonRouter from "./api/lesson.js";
 import liveRouter from "./api/live.js";
 import enrollRouter from "./api/enrollment.js";
-
+import paymentRouter from "./api/payment.js";
 import paperRouter from "./api/paper.js";
 import questionRouter from "./api/question.js";
 
-// ✅ ADD THIS (attempt router)
 import attemptRouter from "./api/attempt.js";
-
-// ✅ Cloudinary upload router
 import uploadRouter from "./api/upload.js";
-
-// ✅ NEW
 import languageRouter from "./api/language.js";
 
 const app = express();
@@ -50,6 +46,10 @@ app.use(
 );
 
 app.use(express.json({ limit: "15mb" }));
+
+// ✅ IMPORTANT for PayHere notify (urlencoded)
+app.use(express.urlencoded({ extended: true }));
+
 app.use(cookieParser());
 
 // routes
@@ -64,14 +64,10 @@ app.use("/api/enroll", enrollRouter);
 
 app.use("/api/paper", paperRouter);
 app.use("/api/question", questionRouter);
+app.use("/api/payment", paymentRouter);
 
-// ✅ FIX: MOUNT attempt routes
 app.use("/api/attempt", attemptRouter);
-
-// ✅ Cloudinary upload endpoint base
 app.use("/api/upload", uploadRouter);
-
-// ✅ NEW language endpoint
 app.use("/api/language", languageRouter);
 
 // error handler
@@ -84,5 +80,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
   console.log("✅ Mounted routes: /api/upload");
   console.log("✅ Mounted routes: /api/language");
-  console.log("✅ Mounted routes: /api/attempt"); // ✅ add log
+  console.log("✅ Mounted routes: /api/attempt");
+  console.log("✅ Mounted routes: /api/payment");
 });

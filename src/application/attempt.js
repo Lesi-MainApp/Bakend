@@ -4,11 +4,15 @@ import Question from "../infastructure/schemas/question.js";
 import PaperAttempt from "../infastructure/schemas/paperAttempt.js";
 import AttemptAnswer from "../infastructure/schemas/attemptAnswer.js";
 
+// ✅ ADD (for paid paper lock)
+import Payment from "../infastructure/schemas/payment.js";
+
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const uniqSortedNums = (arr) =>
-  [...new Set((arr || []).map(Number).filter((n) => Number.isFinite(n)))]
-    .sort((a, b) => a - b);
+  [...new Set((arr || []).map(Number).filter((n) => Number.isFinite(n)))].sort(
+    (a, b) => a - b
+  );
 
 const toStr = (v) => String(v || "");
 
@@ -55,17 +59,39 @@ export const startAttempt = async (req, res) => {
     const { paperId } = req.body;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(paperId)) return res.status(400).json({ message: "Valid paperId is required" });
+    if (!isValidId(paperId))
+      return res.status(400).json({ message: "Valid paperId is required" });
 
     const paper = await Paper.findById(paperId).lean();
     if (!paper || !paper.isActive || !paper.isPublished) {
       return res.status(404).json({ message: "Paper not available" });
     }
 
+    // ✅ PAID PAPER LOCK CHECK (PayHere)
+    const payType = String(paper.payment || "free").toLowerCase();
+    if (payType === "paid") {
+      const paid = await Payment.findOne({
+        userId: studentId,
+        paperId,
+        status: "success",
+      }).lean();
+
+      if (!paid) {
+        return res.status(402).json({
+          message: "Payment required",
+          paperId: String(paperId),
+          amount: Number(paper.amount || 0),
+        });
+      }
+    }
+
     const attemptsAllowed = safeNum(paper.attempts, 1);
 
     // count existing attempts
-    const existingAttempts = await PaperAttempt.find({ paperId, studentId }).sort({ attemptNo: -1 }).lean();
+    const existingAttempts = await PaperAttempt.find({ paperId, studentId })
+      .sort({ attemptNo: -1 })
+      .lean();
+
     const attemptsUsed = existingAttempts.length;
     const attemptsLeft = Math.max(attemptsAllowed - attemptsUsed, 0);
 
@@ -139,7 +165,8 @@ export const getAttemptQuestions = async (req, res) => {
     const { attemptId } = req.params;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
+    if (!isValidId(attemptId))
+      return res.status(400).json({ message: "Invalid attemptId" });
 
     const attempt = await PaperAttempt.findById(attemptId).lean();
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
@@ -169,7 +196,8 @@ export const getAttemptQuestions = async (req, res) => {
         imageUrl: q.imageUrl || "",
         explanationVideoUrl: q.explanationVideoUrl || "",
         explanationText: q.explanationText || "",
-        selectedAnswerIndex: typeof a?.selectedAnswerIndex === "number" ? a.selectedAnswerIndex : null,
+        selectedAnswerIndex:
+          typeof a?.selectedAnswerIndex === "number" ? a.selectedAnswerIndex : null,
       };
     });
 
@@ -200,8 +228,10 @@ export const saveAnswer = async (req, res) => {
     const { attemptId, questionId, selectedAnswerIndex } = req.body;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
-    if (!isValidId(questionId)) return res.status(400).json({ message: "Invalid questionId" });
+    if (!isValidId(attemptId))
+      return res.status(400).json({ message: "Invalid attemptId" });
+    if (!isValidId(questionId))
+      return res.status(400).json({ message: "Invalid questionId" });
 
     const attempt = await PaperAttempt.findById(attemptId).lean();
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
@@ -215,7 +245,9 @@ export const saveAnswer = async (req, res) => {
     const q = await Question.findById(questionId).lean();
     if (!q) return res.status(404).json({ message: "Question not found" });
     if (String(q.paperId) !== String(attempt.paperId)) {
-      return res.status(400).json({ message: "Question not in this attempt paper" });
+      return res
+        .status(400)
+        .json({ message: "Question not in this attempt paper" });
     }
 
     const idx = Number(selectedAnswerIndex);
@@ -256,7 +288,8 @@ export const submitAttempt = async (req, res) => {
     const { attemptId } = req.params;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
+    if (!isValidId(attemptId))
+      return res.status(400).json({ message: "Invalid attemptId" });
 
     const attempt = await PaperAttempt.findById(attemptId).lean();
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
@@ -352,7 +385,8 @@ export const myAttemptsByPaper = async (req, res) => {
     const { paperId } = req.params;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(paperId)) return res.status(400).json({ message: "Invalid paperId" });
+    if (!isValidId(paperId))
+      return res.status(400).json({ message: "Invalid paperId" });
 
     const paper = await Paper.findById(paperId).lean();
     if (!paper) return res.status(404).json({ message: "Paper not found" });
@@ -393,11 +427,13 @@ export const attemptSummary = async (req, res) => {
     const { attemptId } = req.params;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
+    if (!isValidId(attemptId))
+      return res.status(400).json({ message: "Invalid attemptId" });
 
     const attempt = await PaperAttempt.findById(attemptId).lean();
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
-    if (String(attempt.studentId) !== String(studentId)) return res.status(403).json({ message: "Forbidden" });
+    if (String(attempt.studentId) !== String(studentId))
+      return res.status(403).json({ message: "Forbidden" });
 
     const paper = await Paper.findById(attempt.paperId).lean();
     if (!paper) return res.status(404).json({ message: "Paper not found" });
@@ -431,11 +467,13 @@ export const attemptReview = async (req, res) => {
     const { attemptId } = req.params;
 
     if (!studentId) return res.status(401).json({ message: "Unauthorized" });
-    if (!isValidId(attemptId)) return res.status(400).json({ message: "Invalid attemptId" });
+    if (!isValidId(attemptId))
+      return res.status(400).json({ message: "Invalid attemptId" });
 
     const attempt = await PaperAttempt.findById(attemptId).lean();
     if (!attempt) return res.status(404).json({ message: "Attempt not found" });
-    if (String(attempt.studentId) !== String(studentId)) return res.status(403).json({ message: "Forbidden" });
+    if (String(attempt.studentId) !== String(studentId))
+      return res.status(403).json({ message: "Forbidden" });
 
     const paper = await Paper.findById(attempt.paperId).lean();
     if (!paper) return res.status(404).json({ message: "Paper not found" });
@@ -460,7 +498,9 @@ export const attemptReview = async (req, res) => {
 
         const selectedIndex = Number(a.selectedAnswerIndex);
         const selectedAnswer =
-          Number.isFinite(selectedIndex) && selectedIndex >= 0 && selectedIndex < ansList.length
+          Number.isFinite(selectedIndex) &&
+          selectedIndex >= 0 &&
+          selectedIndex < ansList.length
             ? ansList[selectedIndex]
             : "";
 
