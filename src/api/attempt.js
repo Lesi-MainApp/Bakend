@@ -1,3 +1,4 @@
+// src/api/attempt.js
 import express from "express";
 import { authenticate } from "./middlewares/authentication.js";
 import { authorize } from "./middlewares/authrization.js";
@@ -10,6 +11,12 @@ import {
   myAttemptsByPaper,
   attemptSummary,
   attemptReview,
+
+  // ✅ NEW
+  myCompletedPapers,
+
+  // ✅ NEW
+  myStats,
 } from "../application/attempt.js";
 
 const router = express.Router();
@@ -24,6 +31,13 @@ router.post("/submit/:attemptId", authenticate, authorize(["student"]), submitAt
 
 router.get("/my/:paperId", authenticate, authorize(["student"]), myAttemptsByPaper);
 router.get("/summary/:attemptId", authenticate, authorize(["student"]), attemptSummary);
+
 router.get("/review/:attemptId", authenticate, authorize(["student"]), attemptReview);
+
+// ✅ Completed list
+router.get("/completed", authenticate, authorize(["student"]), myCompletedPapers);
+
+// ✅ NEW stats for Coins & FinishedExam
+router.get("/stats", authenticate, authorize(["student"]), myStats);
 
 export default router;

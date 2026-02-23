@@ -1,3 +1,4 @@
+// src/application/attempt.js
 import mongoose from "mongoose";
 import Paper from "../infastructure/schemas/paper.js";
 import Question from "../infastructure/schemas/question.js";
@@ -6,6 +7,9 @@ import AttemptAnswer from "../infastructure/schemas/attemptAnswer.js";
 
 // ✅ ADD (for paid paper lock)
 import Payment from "../infastructure/schemas/payment.js";
+
+// ✅ ADD (to resolve subject name)
+import Grade from "../infastructure/schemas/grade.js";
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
@@ -49,9 +53,42 @@ const computeIsCorrect = (questionDoc, selectedIndex) => {
   return idxs.includes(Number(selectedIndex));
 };
 
+const is1to11 = (g) => g >= 1 && g <= 11;
+const is12or13 = (g) => g === 12 || g === 13;
+
+const resolveSubjectName = (paper, gradeDoc) => {
+  try {
+    const gNo = safeNum(gradeDoc?.grade, 0);
+
+    // Grades 1-11: subjectId stored in paper.subjectId
+    if (is1to11(gNo)) {
+      const subject =
+        (gradeDoc?.subjects || []).find(
+          (s) => String(s?._id) === String(paper?.subjectId)
+        )?.subject || "";
+      return toStr(subject) || "Unknown Subject";
+    }
+
+    // Grades 12-13: stream + streamSubjectId
+    if (is12or13(gNo)) {
+      const st = (gradeDoc?.streams || []).find(
+        (x) => String(x?._id) === String(paper?.streamId)
+      );
+      const subject =
+        (st?.subjects || []).find(
+          (s) => String(s?._id) === String(paper?.streamSubjectId)
+        )?.subject || "";
+      return toStr(subject) || "Unknown Subject";
+    }
+
+    return "Unknown Subject";
+  } catch {
+    return "Unknown Subject";
+  }
+};
+
 /* =========================================================
    POST /api/attempt/start
-   student starts attempt (checks limit)
 ========================================================= */
 export const startAttempt = async (req, res) => {
   try {
@@ -345,7 +382,6 @@ export const submitAttempt = async (req, res) => {
       await AttemptAnswer.bulkWrite(updates);
     }
 
-    const totalQuestions = safeNum(paper.questionCount, questions.length || 0);
     const percentage = totalPossible ? Math.round((earned / totalPossible) * 100) : 0;
 
     const updated = await PaperAttempt.findByIdAndUpdate(
@@ -377,7 +413,6 @@ export const submitAttempt = async (req, res) => {
 
 /* =========================================================
    GET /api/attempt/my/:paperId
-   ✅ used by DailyQuizMenu to switch Attempt Now / View Result
 ========================================================= */
 export const myAttemptsByPaper = async (req, res) => {
   try {
@@ -459,7 +494,6 @@ export const attemptSummary = async (req, res) => {
 
 /* =========================================================
    GET /api/attempt/review/:attemptId
-   ✅ FIX: includes question text for ReviewQuestionCard
 ========================================================= */
 export const attemptReview = async (req, res) => {
   try {
@@ -511,20 +545,14 @@ export const attemptReview = async (req, res) => {
           _id: String(a._id),
           questionId: String(q._id),
           questionNumber: q.questionNumber,
-
-          // ✅ THIS FIXES YOUR "question text not available"
           question: toStr(q.question),
           answers: ansList,
-
           selectedAnswerIndex: selectedIndex,
           selectedAnswer,
-
-          correctAnswers, // array
+          correctAnswers,
           isCorrect,
-
           point: safeNum(q.point, 0),
           earnedPoints: safeNum(a.earnedPoints, 0),
-
           explanationVideoUrl: toStr(q.explanationVideoUrl),
           explanationText: toStr(q.explanationText),
           imageUrl: toStr(q.imageUrl),
@@ -562,6 +590,193 @@ export const attemptReview = async (req, res) => {
     });
   } catch (err) {
     console.error("attemptReview error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/* =========================================================
+   ✅ BEST per paper (already)
+========================================================= */
+export const myCompletedPapers = async (req, res) => {
+  try {
+    const studentId = req.user?.id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const attempts = await PaperAttempt.find({
+      studentId,
+      status: "submitted",
+      submittedAt: { $ne: null },
+    })
+      .sort({ submittedAt: -1 })
+      .lean();
+
+    if (!attempts.length) return res.status(200).json({ items: [] });
+
+    const paperIds = [...new Set(attempts.map((a) => String(a.paperId)))];
+
+    const papers = await Paper.find({ _id: { $in: paperIds } })
+      .select("_id paperTitle paperType gradeId subjectId streamId streamSubjectId questionCount")
+      .lean();
+
+    const paperMap = new Map(papers.map((p) => [String(p._id), p]));
+
+    const gradeIds = [...new Set(papers.map((p) => String(p.gradeId)).filter(Boolean))];
+    const grades = await Grade.find({ _id: { $in: gradeIds } }).lean();
+    const gradeMap = new Map(grades.map((g) => [String(g._id), g]));
+
+    const bestMap = new Map();
+    for (const a of attempts) {
+      const pid = String(a.paperId);
+      const curr = bestMap.get(pid);
+
+      if (!curr) {
+        bestMap.set(pid, a);
+        continue;
+      }
+
+      const aCorrect = safeNum(a.correctCount, 0);
+      const cCorrect = safeNum(curr.correctCount, 0);
+
+      if (aCorrect > cCorrect) {
+        bestMap.set(pid, a);
+        continue;
+      }
+
+      if (aCorrect === cCorrect) {
+        const aPct = safeNum(a.percentage, 0);
+        const cPct = safeNum(curr.percentage, 0);
+
+        if (aPct > cPct) {
+          bestMap.set(pid, a);
+          continue;
+        }
+
+        if (aPct === cPct) {
+          const aTime = a?.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+          const cTime = curr?.submittedAt ? new Date(curr.submittedAt).getTime() : 0;
+          if (aTime > cTime) bestMap.set(pid, a);
+        }
+      }
+    }
+
+    const items = [...bestMap.entries()]
+      .map(([paperId, a]) => {
+        const p = paperMap.get(String(paperId));
+        const g = p?.gradeId ? gradeMap.get(String(p.gradeId)) : null;
+
+        const paperTitle = p?.paperTitle || "";
+        const subject = p && g ? resolveSubjectName(p, g) : "Unknown Subject";
+
+        const totalQuestions = safeNum(p?.questionCount, safeNum(a?.questionCount, 0));
+        const correct = safeNum(a?.correctCount, 0);
+        const percentage = safeNum(a?.percentage, 0);
+
+        const coins = correct;
+
+        return {
+          paperId: String(paperId),
+          paperTitle,
+          subject,
+
+          totalQuestions,
+          correct,
+          percentage,
+          coins,
+
+          attemptId: String(a?._id || ""),
+          attemptNo: safeNum(a?.attemptNo, 1),
+          completedAt: a?.submittedAt ? new Date(a.submittedAt).toISOString() : "",
+        };
+      })
+      .sort((x, y) => {
+        const xt = x.completedAt ? new Date(x.completedAt).getTime() : 0;
+        const yt = y.completedAt ? new Date(y.completedAt).getTime() : 0;
+        return yt - xt;
+      });
+
+    return res.status(200).json({ items });
+  } catch (err) {
+    console.error("myCompletedPapers error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/* =========================================================
+   ✅ NEW: GET /api/attempt/stats
+   - totalFinishedExams = count of completed papers (best per paper)
+   - totalCoins = sum of coins from best per paper
+========================================================= */
+export const myStats = async (req, res) => {
+  try {
+    const studentId = req.user?.id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const attempts = await PaperAttempt.find({
+      studentId,
+      status: "submitted",
+      submittedAt: { $ne: null },
+    })
+      .sort({ submittedAt: -1 })
+      .select("paperId correctCount percentage submittedAt")
+      .lean();
+
+    if (!attempts.length) {
+      return res.status(200).json({
+        totalCoins: 0,
+        totalFinishedExams: 0,
+      });
+    }
+
+    // pick best attempt per paper
+    const bestMap = new Map(); // paperId -> bestAttempt
+    for (const a of attempts) {
+      const pid = String(a.paperId);
+      const curr = bestMap.get(pid);
+
+      if (!curr) {
+        bestMap.set(pid, a);
+        continue;
+      }
+
+      const aCorrect = safeNum(a.correctCount, 0);
+      const cCorrect = safeNum(curr.correctCount, 0);
+
+      if (aCorrect > cCorrect) {
+        bestMap.set(pid, a);
+        continue;
+      }
+
+      if (aCorrect === cCorrect) {
+        const aPct = safeNum(a.percentage, 0);
+        const cPct = safeNum(curr.percentage, 0);
+
+        if (aPct > cPct) {
+          bestMap.set(pid, a);
+          continue;
+        }
+
+        if (aPct === cPct) {
+          const aTime = a?.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+          const cTime = curr?.submittedAt ? new Date(curr.submittedAt).getTime() : 0;
+          if (aTime > cTime) bestMap.set(pid, a);
+        }
+      }
+    }
+
+    const totalFinishedExams = bestMap.size;
+
+    // ✅ coins = correctCount (same rule)
+    let totalCoins = 0;
+    for (const [, a] of bestMap.entries()) {
+      totalCoins += safeNum(a?.correctCount, 0);
+    }
+
+    return res.status(200).json({
+      totalCoins,
+      totalFinishedExams,
+    });
+  } catch (err) {
+    console.error("myStats error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 };

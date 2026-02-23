@@ -18,7 +18,7 @@ import enrollRouter from "./api/enrollment.js";
 import paymentRouter from "./api/payment.js";
 import paperRouter from "./api/paper.js";
 import questionRouter from "./api/question.js";
-
+import rankRouter from "./api/rank.js";
 import attemptRouter from "./api/attempt.js";
 import uploadRouter from "./api/upload.js";
 import languageRouter from "./api/language.js";
@@ -61,7 +61,7 @@ app.use("/api/teacher", teacherAssignmentRouter);
 app.use("/api/live", liveRouter);
 app.use("/api/lesson", lessonRouter);
 app.use("/api/enroll", enrollRouter);
-
+app.use("/api/rank", rankRouter);
 app.use("/api/paper", paperRouter);
 app.use("/api/question", questionRouter);
 app.use("/api/payment", paymentRouter);
