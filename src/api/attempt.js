@@ -34,5 +34,3 @@ router.get("/completed", authenticate, authorize(["student"]), myCompletedPapers
 
 // ✅ NEW stats (Coins = total points)
 router.get("/stats", authenticate, authorize(["student"]), myStats);
-
-export default router;

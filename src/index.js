@@ -21,7 +21,7 @@ import rankRouter from "./api/rank.js";
 import attemptRouter from "./api/attempt.js";
 import uploadRouter from "./api/upload.js";
 import languageRouter from "./api/language.js";
-
+import studentRouter from "./api/student.js";
 // ✅ NEW
 import progressRouter from "./api/progressbar.js";
 
@@ -54,6 +54,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(cookieParser());
 
+app.use("/api/student", studentRouter);
 // routes
 app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);

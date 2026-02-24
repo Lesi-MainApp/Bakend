@@ -14,9 +14,17 @@ const userSchema = new Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      index: true,
     },
 
-    phonenumber: { type: String, default: "" },
+    // ✅ MAKE UNIQUE
+    phonenumber: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      index: true,
+    },
 
     password: { type: String, required: true, select: false },
 
@@ -40,25 +48,22 @@ const userSchema = new Schema(
     town: { type: String, default: "" },
     address: { type: String, default: "" },
 
-    // ✅ LANGUAGE (NEW)
     selectedLanguage: {
       type: String,
       enum: ["si", "en"],
       default: "si",
     },
 
-    // ✅ GRADE SELECTION (LOCKED)
     selectedLevel: {
       type: String,
       enum: ["primary", "secondary", "al"],
       default: null,
     },
     selectedGradeNumber: { type: Number, min: 1, max: 13, default: null },
-    selectedStream: { type: String, default: null, trim: true }, // only for A/L
+    selectedStream: { type: String, default: null, trim: true },
     gradeSelectionLocked: { type: Boolean, default: false },
     gradeSelectedAt: { type: Date, default: null },
 
-     // ✅ NEW progress (backend storage)
     progressHighWaterMark: { type: Number, default: 0, min: 0, max: 1 },
     progressUpdatedAt: { type: Date, default: null },
   },

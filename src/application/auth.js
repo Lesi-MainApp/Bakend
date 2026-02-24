@@ -33,7 +33,6 @@ const safeUser = (u) => ({
   approvedBy: u.approvedBy,
   isActive: u.isActive,
 
-  // ✅ selection fields
   selectedLevel: u.selectedLevel,
   selectedGradeNumber: u.selectedGradeNumber,
   selectedStream: u.selectedStream,
@@ -65,13 +64,20 @@ const setAuthCookie = (res, token) => {
 const sendOtpBoth = async ({ phone, email, otp, purpose }) => {
   const msg = `Your Lesi Iskole verification code is: ${otp} (valid for ${OTP_TTL_MINUTES} minutes)`;
 
-  try { await sendWhatsApp(phone, msg); } catch (e) { console.error("WhatsApp OTP send failed:", e); }
+  try {
+    await sendWhatsApp(phone, msg);
+  } catch (e) {
+    console.error("WhatsApp OTP send failed:", e);
+  }
 
   if (email) {
     try {
       await sendEmail({
         to: email,
-        subject: purpose === "reset_password" ? "Lesi Iskole Password Reset Code" : "Lesi Iskole Verification Code",
+        subject:
+          purpose === "reset_password"
+            ? "Lesi Iskole Password Reset Code"
+            : "Lesi Iskole Verification Code",
         text: msg,
       });
     } catch (e) {
@@ -84,7 +90,6 @@ export const signUp = async (req, res) => {
   try {
     const { name, email, whatsappnumber, password, role, district, town, address } = req.body;
 
-    // ✅ required base
     if (!name || !email || !whatsappnumber || !password || !role) {
       return res.status(400).json({ message: "Missing required fields" });
     }
@@ -97,7 +102,6 @@ export const signUp = async (req, res) => {
       return res.status(400).json({ message: "Invalid Sri Lankan phone number" });
     }
 
-    // ✅ REQUIRED for student signup
     if (role === "student") {
       if (!String(district || "").trim()) return res.status(400).json({ message: "District is required" });
       if (!String(town || "").trim()) return res.status(400).json({ message: "Town is required" });
@@ -107,12 +111,57 @@ export const signUp = async (req, res) => {
     const normalizedPhone = normalizeSLPhone(whatsappnumber);
     const normalizedEmail = String(email).toLowerCase().trim();
 
-    const existsEmail = await User.findOne({ email: normalizedEmail });
-    if (existsEmail) return res.status(409).json({ message: "Email already in use" });
+    // ✅ check existing by email OR phone
+    const existing = await User.findOne({
+      $or: [{ email: normalizedEmail }, { phonenumber: normalizedPhone }],
+    });
 
-    const existsPhone = await User.findOne({ phonenumber: normalizedPhone });
-    if (existsPhone) return res.status(409).json({ message: "WhatsApp number already in use" });
+    // ✅ If exists and already verified -> true conflict
+    if (existing && existing.isVerified) {
+      if (existing.email === normalizedEmail) return res.status(409).json({ message: "Email already in use" });
+      return res.status(409).json({ message: "WhatsApp number already in use" });
+    }
 
+    // ✅ If exists but not verified -> re-send OTP (NO 409)
+    if (existing && !existing.isVerified) {
+      // update details (optional but helpful)
+      existing.name = String(name).trim();
+      existing.email = normalizedEmail;
+      existing.phonenumber = normalizedPhone;
+      existing.role = role;
+
+      existing.district = role === "student" ? String(district).trim() : "";
+      existing.town = role === "student" ? String(town).trim() : "";
+      existing.address = role === "student" ? String(address).trim() : "";
+
+      existing.password = await bcrypt.hash(String(password), 10);
+
+      await existing.save();
+
+      await Otp.deleteMany({ phonenumber: normalizedPhone, purpose: "verify_phone", consumedAt: null });
+
+      const otp = generateOtp();
+      const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+      await Otp.create({
+        phonenumber: normalizedPhone,
+        email: normalizedEmail,
+        codeHash: hashOtp(otp),
+        purpose: "verify_phone",
+        expiresAt,
+        attempts: 0,
+        maxAttempts: 5,
+      });
+
+      await sendOtpBoth({ phone: normalizedPhone, email: normalizedEmail, otp, purpose: "verify_phone" });
+
+      return res.status(200).json({
+        message: "User already exists but not verified. OTP re-sent.",
+        user: safeUser(existing),
+      });
+    }
+
+    // ✅ New user create
     const hashedPass = await bcrypt.hash(String(password), 10);
 
     const user = await User.create({
@@ -122,7 +171,6 @@ export const signUp = async (req, res) => {
       password: hashedPass,
       role,
 
-      // ✅ SAVE student details
       district: role === "student" ? String(district).trim() : "",
       town: role === "student" ? String(town).trim() : "",
       address: role === "student" ? String(address).trim() : "",
@@ -152,11 +200,19 @@ export const signUp = async (req, res) => {
     return res.status(201).json({ message: "User created. OTP sent.", user: safeUser(user) });
   } catch (err) {
     console.error("signUp error:", err);
+
+    // ✅ handle Mongo duplicate key properly
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: "Duplicate email or phone" });
+    }
+
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-
+/* =========================
+   NO CHANGES BELOW (keep yours)
+========================= */
 
 export const verifyCode = async (req, res) => {
   try {
@@ -272,7 +328,6 @@ export const signOut = async (req, res) => {
   return res.status(200).json({ message: "Signed out successfully" });
 };
 
-// forgot password (keep yours as you have)
 export const forgotPasswordSendOtp = async (req, res) => res.status(501).json({ message: "Implement / keep your existing" });
 export const forgotPasswordReset = async (req, res) => res.status(501).json({ message: "Implement / keep your existing" });
 export const submitStudentDetails = async (req, res) => res.status(501).json({ message: "Optional / keep your existing" });
