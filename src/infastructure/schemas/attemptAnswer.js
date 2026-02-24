@@ -9,11 +9,14 @@ const attemptAnswerSchema = new Schema(
     questionId: { type: Schema.Types.ObjectId, ref: "Question", required: true, index: true },
     questionNumber: { type: Number, required: true, min: 1 },
 
-    // what student chose
-    selectedAnswerIndex: { type: Number, required: true, min: 0 },
+    // ✅ MULTI selection (new)
+    selectedAnswerIndexes: { type: [Number], required: true, default: [] },
 
-    // calculated on submit (optional store)
-    isCorrect: { type: Boolean, default: false, index: true },
+    // ✅ keep old single selection for backward compatibility
+    selectedAnswerIndex: { type: Number, default: null },
+
+    // calculated on submit
+    isCorrect: { type: Boolean, default: false, index: true }, // full correct only
     earnedPoints: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }

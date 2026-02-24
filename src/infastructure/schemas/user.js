@@ -57,6 +57,10 @@ const userSchema = new Schema(
     selectedStream: { type: String, default: null, trim: true }, // only for A/L
     gradeSelectionLocked: { type: Boolean, default: false },
     gradeSelectedAt: { type: Date, default: null },
+
+     // ✅ NEW progress (backend storage)
+    progressHighWaterMark: { type: Number, default: 0, min: 0, max: 1 },
+    progressUpdatedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

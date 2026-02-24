@@ -1,4 +1,3 @@
-// src/index.js
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -22,6 +21,9 @@ import rankRouter from "./api/rank.js";
 import attemptRouter from "./api/attempt.js";
 import uploadRouter from "./api/upload.js";
 import languageRouter from "./api/language.js";
+
+// ✅ NEW
+import progressRouter from "./api/progressbar.js";
 
 const app = express();
 
@@ -70,6 +72,9 @@ app.use("/api/attempt", attemptRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/language", languageRouter);
 
+// ✅ NEW
+app.use("/api/progress", progressRouter);
+
 // error handler
 app.use(GlobalErrorHandler);
 
@@ -82,4 +87,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("✅ Mounted routes: /api/language");
   console.log("✅ Mounted routes: /api/attempt");
   console.log("✅ Mounted routes: /api/payment");
+  console.log("✅ Mounted routes: /api/progress");
 });

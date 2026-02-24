@@ -16,21 +16,21 @@ export const getIslandRank = async (req, res) => {
     const uid = new mongoose.Types.ObjectId(String(userId));
 
     const pipeline = [
-      // 1) only completed attempts
+      // ✅ only completed attempts + only free/paid
       {
         $match: {
           status: "submitted",
           submittedAt: { $ne: null },
+          paymentType: { $in: ["free", "paid"] }, // ✅ exclude practise
         },
       },
 
-      // 2) choose BEST attempt per (studentId + paperId)
-      // best = higher correctCount, then higher percentage, then latest submittedAt
+      // ✅ best attempt per (studentId+paperId) by points
       {
         $sort: {
           studentId: 1,
           paperId: 1,
-          correctCount: -1,
+          totalPointsEarned: -1,
           percentage: -1,
           submittedAt: -1,
         },
@@ -43,23 +43,17 @@ export const getIslandRank = async (req, res) => {
       },
       { $replaceRoot: { newRoot: "$bestAttempt" } },
 
-      // 3) sum per student => totalCoins + totalFinishedExams + lastSubmittedAt
+      // ✅ sum per student => totalCoins(points) + totalFinishedExams
       {
         $group: {
           _id: "$studentId",
-          totalCoins: { $sum: { $ifNull: ["$correctCount", 0] } },
+          totalCoins: { $sum: { $ifNull: ["$totalPointsEarned", 0] } },
           totalFinishedExams: { $sum: 1 },
           lastSubmittedAt: { $max: "$submittedAt" },
         },
       },
 
-      // 4) build ONE numeric score so we can sort with exactly 1 field
-      // score priority:
-      // - totalCoins (biggest weight)
-      // - totalFinishedExams (next)
-      // - lastSubmittedAt (latest wins tie)
-      //
-      // NOTE: This assumes coins/exams won't exceed these ranges (safe for your app).
+      // ✅ single numeric score to allow denseRank sortBy with one field
       {
         $addFields: {
           lastTime: { $toLong: { $ifNull: ["$lastSubmittedAt", new Date(0)] } },
@@ -67,8 +61,6 @@ export const getIslandRank = async (req, res) => {
       },
       {
         $addFields: {
-          // score = coins*1e15 + exams*1e12 + lastTime
-          // (large multipliers make coins dominate exams, exams dominate time)
           score: {
             $add: [
               { $multiply: ["$totalCoins", 1000000000000000] }, // 1e15
@@ -79,10 +71,8 @@ export const getIslandRank = async (req, res) => {
         },
       },
 
-      // 5) sort by ONE field only (required by your MongoDB)
       { $sort: { score: -1 } },
 
-      // 6) rank using window fields with single-field sortBy
       {
         $setWindowFields: {
           sortBy: { score: -1 },
@@ -92,7 +82,7 @@ export const getIslandRank = async (req, res) => {
         },
       },
 
-      // 7) attach user name
+      // attach user
       {
         $lookup: {
           from: "users",
@@ -103,18 +93,16 @@ export const getIslandRank = async (req, res) => {
       },
       { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
 
-      // 8) shape output
       {
         $project: {
           studentId: { $toString: "$_id" },
           name: { $ifNull: ["$user.name", "Student"] },
-          totalCoins: 1,
+          totalCoins: 1, // ✅ points
           totalFinishedExams: 1,
           rank: 1,
         },
       },
 
-      // 9) return top + me
       {
         $facet: {
           top: [{ $limit: limit }],
@@ -138,7 +126,6 @@ export const getIslandRank = async (req, res) => {
   } catch (err) {
     console.error("getIslandRank error:", err);
 
-    // If Mongo doesn't support window fields at all:
     if (String(err?.message || "").includes("$setWindowFields")) {
       return res.status(500).json({
         message:

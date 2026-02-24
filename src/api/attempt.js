@@ -1,4 +1,3 @@
-// src/api/attempt.js
 import express from "express";
 import { authenticate } from "./middlewares/authentication.js";
 import { authorize } from "./middlewares/authrization.js";
@@ -11,11 +10,7 @@ import {
   myAttemptsByPaper,
   attemptSummary,
   attemptReview,
-
-  // ✅ NEW
   myCompletedPapers,
-
-  // ✅ NEW
   myStats,
 } from "../application/attempt.js";
 
@@ -34,10 +29,10 @@ router.get("/summary/:attemptId", authenticate, authorize(["student"]), attemptS
 
 router.get("/review/:attemptId", authenticate, authorize(["student"]), attemptReview);
 
-// ✅ Completed list
+// ✅ Completed list (best per paper)
 router.get("/completed", authenticate, authorize(["student"]), myCompletedPapers);
 
-// ✅ NEW stats for Coins & FinishedExam
+// ✅ NEW stats (Coins = total points)
 router.get("/stats", authenticate, authorize(["student"]), myStats);
 
 export default router;

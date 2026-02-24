@@ -6,8 +6,7 @@ const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 const norm = (v) => String(v || "").trim();
 
 const uniqSortedNums = (arr) =>
-  [...new Set((arr || []).map(Number).filter((n) => Number.isFinite(n)))]
-    .sort((a, b) => a - b);
+  [...new Set((arr || []).map(Number).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b);
 
 const getPaperProgress = async (paperId) => {
   const paper = await Paper.findById(paperId).lean();
@@ -45,7 +44,9 @@ export const createQuestion = async (req, res) => {
       // ✅ old single correct support (optional)
       correctAnswerIndex,
 
-      point = 5,
+      // ✅ point may be omitted now
+      point,
+
       explanationVideoUrl = "",
       explanationText = "",
       imageUrl = "",
@@ -104,6 +105,24 @@ export const createQuestion = async (req, res) => {
       });
     }
 
+    // ✅ AUTO POINT LOGIC (fix your coins showing 5)
+    // if point is NOT provided -> choose default by paper.payment
+    let payType = String(paper?.payment || "free").toLowerCase();
+    if (payType === "practice") payType = "practise";
+
+    let finalPoint;
+    if (point !== undefined && point !== null && String(point).trim() !== "") {
+      finalPoint = Number(point);
+    } else {
+      if (payType === "paid") finalPoint = 8;
+      else if (payType === "practise") finalPoint = 0;
+      else finalPoint = 6; // free
+    }
+
+    if (!Number.isFinite(finalPoint) || finalPoint < 0) {
+      return res.status(400).json({ message: "point must be a valid number >= 0" });
+    }
+
     const doc = await Question.create({
       paperId,
       questionNumber: qNo,
@@ -112,7 +131,7 @@ export const createQuestion = async (req, res) => {
       answers: cleanedAnswers,
       correctAnswerIndexes: idxs,
 
-      point: Number(point || 5),
+      point: finalPoint,
       explanationVideoUrl: norm(explanationVideoUrl),
       explanationText: norm(explanationText),
       imageUrl: norm(imageUrl),
@@ -196,15 +215,20 @@ export const updateQuestionById = async (req, res) => {
     }
 
     if (req.body.lessonName !== undefined) patch.lessonName = norm(req.body.lessonName);
-    if (req.body.explanationVideoUrl !== undefined) patch.explanationVideoUrl = norm(req.body.explanationVideoUrl);
+    if (req.body.explanationVideoUrl !== undefined)
+      patch.explanationVideoUrl = norm(req.body.explanationVideoUrl);
     if (req.body.explanationText !== undefined) patch.explanationText = norm(req.body.explanationText);
     if (req.body.imageUrl !== undefined) patch.imageUrl = norm(req.body.imageUrl);
 
     let nextAnswers = null;
     if (req.body.answers !== undefined) {
-      if (!Array.isArray(req.body.answers)) return res.status(400).json({ message: "answers must be an array" });
+      if (!Array.isArray(req.body.answers))
+        return res.status(400).json({ message: "answers must be an array" });
+
       const cleaned = req.body.answers.map((a) => norm(a)).filter(Boolean);
-      if (cleaned.length < 1 || cleaned.length > 6) return res.status(400).json({ message: "answers must be 1..6" });
+      if (cleaned.length < 1 || cleaned.length > 6)
+        return res.status(400).json({ message: "answers must be 1..6" });
+
       nextAnswers = cleaned;
       patch.answers = cleaned;
     }
@@ -227,7 +251,10 @@ export const updateQuestionById = async (req, res) => {
       const bad = idxs.some((i) => i < 0 || i >= answersToValidate.length);
       if (bad) {
         return res.status(400).json({
-          message: `correctAnswerIndexes must be between 0 and ${Math.max(answersToValidate.length - 1, 0)}`,
+          message: `correctAnswerIndexes must be between 0 and ${Math.max(
+            answersToValidate.length - 1,
+            0
+          )}`,
         });
       }
       patch.correctAnswerIndexes = idxs;

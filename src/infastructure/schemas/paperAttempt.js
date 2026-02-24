@@ -24,11 +24,17 @@ const paperAttemptSchema = new Schema(
     questionCount: { type: Number, required: true, min: 1 },
     oneQuestionAnswersCount: { type: Number, required: true, min: 2 },
 
+    // ✅ IMPORTANT for rank/stats filtering later
+    paymentType: { type: String, enum: ["free", "paid", "practise"], default: "free", index: true },
+
     // scoring
     totalPossiblePoints: { type: Number, default: 0, min: 0 },
     totalPointsEarned: { type: Number, default: 0, min: 0 },
+
+    // full-correct question counts (kept for compatibility)
     correctCount: { type: Number, default: 0, min: 0 },
     wrongCount: { type: Number, default: 0, min: 0 },
+
     percentage: { type: Number, default: 0, min: 0, max: 100 },
 
     startedAt: { type: Date, default: Date.now },
