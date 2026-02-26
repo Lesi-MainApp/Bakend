@@ -29,8 +29,10 @@ router.get("/summary/:attemptId", authenticate, authorize(["student"]), attemptS
 
 router.get("/review/:attemptId", authenticate, authorize(["student"]), attemptReview);
 
-// ✅ Completed list (best per paper)
+// Completed list (best per paper)
 router.get("/completed", authenticate, authorize(["student"]), myCompletedPapers);
 
-// ✅ NEW stats (Coins = total points)
+// Stats
 router.get("/stats", authenticate, authorize(["student"]), myStats);
+
+export default router;
