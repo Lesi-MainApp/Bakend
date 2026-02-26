@@ -2,7 +2,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
-import User, { SL_PHONE_REGEX } from "../infastructure/schemas/user.js";
+import User, {
+  SL_PHONE_REGEX,
+  DISTRICT_ENUMS,
+} from "../infastructure/schemas/user.js";
 import Otp from "../infastructure/schemas/otp.js";
 import { sendWhatsApp } from "../api/whatsapp.js";
 import { sendEmail } from "../api/email.js";
@@ -17,6 +20,11 @@ const normalizeSLPhone = (phone) => {
   return p;
 };
 
+const normalizeDistrict = (district) => {
+  const d = String(district || "").trim();
+  return DISTRICT_ENUMS.includes(d) ? d : "";
+};
+
 const safeUser = (u) => ({
   _id: u._id,
   name: u.name,
@@ -25,6 +33,7 @@ const safeUser = (u) => ({
   district: u.district,
   town: u.town,
   address: u.address,
+  birthday: u.birthday,
   role: u.role,
   isVerified: u.isVerified,
   verifiedAt: u.verifiedAt,
@@ -43,8 +52,10 @@ const safeUser = (u) => ({
   updatedAt: u.updatedAt,
 });
 
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
-const hashOtp = (code) => crypto.createHash("sha256").update(String(code)).digest("hex");
+const generateOtp = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+const hashOtp = (code) =>
+  crypto.createHash("sha256").update(String(code)).digest("hex");
 
 const issueToken = (userId) => {
   const secret = process.env.JWT_SECRET || "dev_secret_change_me";
@@ -88,7 +99,17 @@ const sendOtpBoth = async ({ phone, email, otp, purpose }) => {
 
 export const signUp = async (req, res) => {
   try {
-    const { name, email, whatsappnumber, password, role, district, town, address } = req.body;
+    const {
+      name,
+      email,
+      whatsappnumber,
+      password,
+      role,
+      district,
+      town,
+      address,
+      birthday,
+    } = req.body;
 
     if (!name || !email || !whatsappnumber || !password || !role) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -99,46 +120,76 @@ export const signUp = async (req, res) => {
     }
 
     if (!SL_PHONE_REGEX.test(String(whatsappnumber).trim())) {
-      return res.status(400).json({ message: "Invalid Sri Lankan phone number" });
+      return res
+        .status(400)
+        .json({ message: "Invalid Sri Lankan phone number" });
+    }
+
+    let normalizedBirthday = null;
+    if (birthday) {
+      const bd = new Date(birthday);
+      if (Number.isNaN(bd.getTime())) {
+        return res.status(400).json({ message: "Invalid birthday" });
+      }
+      normalizedBirthday = bd;
     }
 
     if (role === "student") {
-      if (!String(district || "").trim()) return res.status(400).json({ message: "District is required" });
-      if (!String(town || "").trim()) return res.status(400).json({ message: "Town is required" });
-      if (!String(address || "").trim()) return res.status(400).json({ message: "Address is required" });
+      const normalizedDistrict = normalizeDistrict(district);
+
+      if (!normalizedDistrict) {
+        return res
+          .status(400)
+          .json({ message: "District must be a valid English district value" });
+      }
+      if (!String(town || "").trim()) {
+        return res.status(400).json({ message: "Town is required" });
+      }
+      if (!String(address || "").trim()) {
+        return res.status(400).json({ message: "Address is required" });
+      }
+      if (!normalizedBirthday) {
+        return res.status(400).json({ message: "Birthday is required" });
+      }
     }
 
     const normalizedPhone = normalizeSLPhone(whatsappnumber);
     const normalizedEmail = String(email).toLowerCase().trim();
 
-    // ✅ check existing by email OR phone
     const existing = await User.findOne({
       $or: [{ email: normalizedEmail }, { phonenumber: normalizedPhone }],
     });
 
-    // ✅ If exists and already verified -> true conflict
     if (existing && existing.isVerified) {
-      if (existing.email === normalizedEmail) return res.status(409).json({ message: "Email already in use" });
-      return res.status(409).json({ message: "WhatsApp number already in use" });
+      if (existing.email === normalizedEmail) {
+        return res.status(409).json({ message: "Email already in use" });
+      }
+      return res
+        .status(409)
+        .json({ message: "WhatsApp number already in use" });
     }
 
-    // ✅ If exists but not verified -> re-send OTP (NO 409)
     if (existing && !existing.isVerified) {
-      // update details (optional but helpful)
       existing.name = String(name).trim();
       existing.email = normalizedEmail;
       existing.phonenumber = normalizedPhone;
       existing.role = role;
 
-      existing.district = role === "student" ? String(district).trim() : "";
+      existing.district =
+        role === "student" ? normalizeDistrict(district) : "";
       existing.town = role === "student" ? String(town).trim() : "";
       existing.address = role === "student" ? String(address).trim() : "";
+      existing.birthday = role === "student" ? normalizedBirthday : null;
 
       existing.password = await bcrypt.hash(String(password), 10);
 
       await existing.save();
 
-      await Otp.deleteMany({ phonenumber: normalizedPhone, purpose: "verify_phone", consumedAt: null });
+      await Otp.deleteMany({
+        phonenumber: normalizedPhone,
+        purpose: "verify_phone",
+        consumedAt: null,
+      });
 
       const otp = generateOtp();
       const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
@@ -153,7 +204,12 @@ export const signUp = async (req, res) => {
         maxAttempts: 5,
       });
 
-      await sendOtpBoth({ phone: normalizedPhone, email: normalizedEmail, otp, purpose: "verify_phone" });
+      await sendOtpBoth({
+        phone: normalizedPhone,
+        email: normalizedEmail,
+        otp,
+        purpose: "verify_phone",
+      });
 
       return res.status(200).json({
         message: "User already exists but not verified. OTP re-sent.",
@@ -161,7 +217,6 @@ export const signUp = async (req, res) => {
       });
     }
 
-    // ✅ New user create
     const hashedPass = await bcrypt.hash(String(password), 10);
 
     const user = await User.create({
@@ -171,16 +226,21 @@ export const signUp = async (req, res) => {
       password: hashedPass,
       role,
 
-      district: role === "student" ? String(district).trim() : "",
+      district: role === "student" ? normalizeDistrict(district) : "",
       town: role === "student" ? String(town).trim() : "",
       address: role === "student" ? String(address).trim() : "",
+      birthday: role === "student" ? normalizedBirthday : null,
 
       isVerified: false,
       verifiedAt: null,
       isApproved: role === "teacher" ? false : true,
     });
 
-    await Otp.deleteMany({ phonenumber: normalizedPhone, purpose: "verify_phone", consumedAt: null });
+    await Otp.deleteMany({
+      phonenumber: normalizedPhone,
+      purpose: "verify_phone",
+      consumedAt: null,
+    });
 
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
@@ -195,13 +255,19 @@ export const signUp = async (req, res) => {
       maxAttempts: 5,
     });
 
-    await sendOtpBoth({ phone: normalizedPhone, email: normalizedEmail, otp, purpose: "verify_phone" });
+    await sendOtpBoth({
+      phone: normalizedPhone,
+      email: normalizedEmail,
+      otp,
+      purpose: "verify_phone",
+    });
 
-    return res.status(201).json({ message: "User created. OTP sent.", user: safeUser(user) });
+    return res
+      .status(201)
+      .json({ message: "User created. OTP sent.", user: safeUser(user) });
   } catch (err) {
     console.error("signUp error:", err);
 
-    // ✅ handle Mongo duplicate key properly
     if (err?.code === 11000) {
       return res.status(409).json({ message: "Duplicate email or phone" });
     }
@@ -210,14 +276,14 @@ export const signUp = async (req, res) => {
   }
 };
 
-/* =========================
-   NO CHANGES BELOW (keep yours)
-========================= */
-
 export const verifyCode = async (req, res) => {
   try {
     const { phonenumber, code } = req.body;
-    if (!phonenumber || !code) return res.status(400).json({ message: "phonenumber and code are required" });
+    if (!phonenumber || !code) {
+      return res
+        .status(400)
+        .json({ message: "phonenumber and code are required" });
+    }
 
     const normalizedPhone = normalizeSLPhone(phonenumber);
 
@@ -227,9 +293,15 @@ export const verifyCode = async (req, res) => {
       consumedAt: null,
     }).sort({ createdAt: -1 });
 
-    if (!otpDoc) return res.status(400).json({ message: "No OTP found. Please resend code." });
-    if (Date.now() > new Date(otpDoc.expiresAt).getTime()) return res.status(400).json({ message: "Code expired" });
-    if (otpDoc.attempts >= otpDoc.maxAttempts) return res.status(429).json({ message: "Too many attempts" });
+    if (!otpDoc) {
+      return res.status(400).json({ message: "No OTP found. Please resend code." });
+    }
+    if (Date.now() > new Date(otpDoc.expiresAt).getTime()) {
+      return res.status(400).json({ message: "Code expired" });
+    }
+    if (otpDoc.attempts >= otpDoc.maxAttempts) {
+      return res.status(429).json({ message: "Too many attempts" });
+    }
 
     const isMatch = hashOtp(code) === otpDoc.codeHash;
     otpDoc.attempts += 1;
@@ -257,7 +329,9 @@ export const verifyCode = async (req, res) => {
 export const sendVerificationCode = async (req, res) => {
   try {
     const { phonenumber } = req.body;
-    if (!phonenumber) return res.status(400).json({ message: "phonenumber is required" });
+    if (!phonenumber) {
+      return res.status(400).json({ message: "phonenumber is required" });
+    }
 
     const normalizedPhone = normalizeSLPhone(phonenumber);
     const user = await User.findOne({ phonenumber: normalizedPhone });
@@ -265,7 +339,11 @@ export const sendVerificationCode = async (req, res) => {
 
     if (user.isVerified) return res.status(200).json({ message: "Already verified" });
 
-    await Otp.deleteMany({ phonenumber: normalizedPhone, purpose: "verify_phone", consumedAt: null });
+    await Otp.deleteMany({
+      phonenumber: normalizedPhone,
+      purpose: "verify_phone",
+      consumedAt: null,
+    });
 
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
@@ -280,7 +358,12 @@ export const sendVerificationCode = async (req, res) => {
       maxAttempts: 5,
     });
 
-    await sendOtpBoth({ phone: normalizedPhone, email: user.email, otp, purpose: "verify_phone" });
+    await sendOtpBoth({
+      phone: normalizedPhone,
+      email: user.email,
+      otp,
+      purpose: "verify_phone",
+    });
 
     return res.status(200).json({ message: "OTP sent" });
   } catch (err) {
@@ -295,16 +378,26 @@ export const signIn = async (req, res) => {
     const phoneInput = phonenumber || whatsappnumber;
 
     if (!phoneInput || !password) {
-      return res.status(400).json({ message: "phonenumber and password are required" });
+      return res
+        .status(400)
+        .json({ message: "phonenumber and password are required" });
     }
 
     const normalizedPhone = normalizeSLPhone(phoneInput);
 
-    const user = await User.findOne({ phonenumber: normalizedPhone }).select("+password");
+    const user = await User.findOne({ phonenumber: normalizedPhone }).select(
+      "+password"
+    );
     if (!user) return res.status(401).json({ message: "Invalid phone or password" });
 
-    if (!user.isVerified) return res.status(403).json({ message: "Phone not verified. Please verify OTP first." });
-    if (user.role === "teacher" && !user.isApproved) return res.status(403).json({ message: "Teacher not approved yet." });
+    if (!user.isVerified) {
+      return res
+        .status(403)
+        .json({ message: "Phone not verified. Please verify OTP first." });
+    }
+    if (user.role === "teacher" && !user.isApproved) {
+      return res.status(403).json({ message: "Teacher not approved yet." });
+    }
 
     const ok = await bcrypt.compare(String(password), user.password);
     if (!ok) return res.status(401).json({ message: "Invalid phone or password" });
@@ -328,6 +421,9 @@ export const signOut = async (req, res) => {
   return res.status(200).json({ message: "Signed out successfully" });
 };
 
-export const forgotPasswordSendOtp = async (req, res) => res.status(501).json({ message: "Implement / keep your existing" });
-export const forgotPasswordReset = async (req, res) => res.status(501).json({ message: "Implement / keep your existing" });
-export const submitStudentDetails = async (req, res) => res.status(501).json({ message: "Optional / keep your existing" });
+export const forgotPasswordSendOtp = async (req, res) =>
+  res.status(501).json({ message: "Implement / keep your existing" });
+export const forgotPasswordReset = async (req, res) =>
+  res.status(501).json({ message: "Implement / keep your existing" });
+export const submitStudentDetails = async (req, res) =>
+  res.status(501).json({ message: "Optional / keep your existing" });

@@ -4,6 +4,34 @@ const { Schema } = mongoose;
 
 export const SL_PHONE_REGEX = /^(?:\+94|0)?(?:7[0-9]{8}|[1-9][0-9]{8})$/;
 
+export const DISTRICT_ENUMS = [
+  "Ampara",
+  "Anuradhapura",
+  "Badulla",
+  "Batticaloa",
+  "Colombo",
+  "Galle",
+  "Gampaha",
+  "Hambantota",
+  "Jaffna",
+  "Kalutara",
+  "Kandy",
+  "Kegalle",
+  "Kilinochchi",
+  "Kurunegala",
+  "Mannar",
+  "Matale",
+  "Matara",
+  "Monaragala",
+  "Mullaitivu",
+  "NuwaraEliya",
+  "Polonnaruwa",
+  "Puttalam",
+  "Ratnapura",
+  "Trincomalee",
+  "Vavuniya",
+];
+
 const userSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -17,7 +45,6 @@ const userSchema = new Schema(
       index: true,
     },
 
-    // ✅ MAKE UNIQUE
     phonenumber: {
       type: String,
       required: true,
@@ -44,9 +71,14 @@ const userSchema = new Schema(
     isActive: { type: Boolean, default: true },
 
     // student details
-    district: { type: String, default: "" },
+    district: {
+      type: String,
+      enum: ["", ...DISTRICT_ENUMS], // ✅ only English enum values
+      default: "",
+    },
     town: { type: String, default: "" },
     address: { type: String, default: "" },
+    birthday: { type: Date, default: null }, // ✅ new
 
     selectedLanguage: {
       type: String,

@@ -1,5 +1,8 @@
 import bcrypt from "bcryptjs";
-import User, { SL_PHONE_REGEX } from "../infastructure/schemas/user.js";
+import User, {
+  SL_PHONE_REGEX,
+  DISTRICT_ENUMS,
+} from "../infastructure/schemas/user.js";
 import Grade from "../infastructure/schemas/grade.js";
 
 /* ==========================
@@ -13,6 +16,18 @@ const normalizeSLPhone = (phone) => {
   return p;
 };
 
+const normalizeDistrict = (district) => {
+  const d = String(district || "").trim();
+  return DISTRICT_ENUMS.includes(d) ? d : "";
+};
+
+const parseBirthday = (birthday) => {
+  if (!birthday) return null;
+  const d = new Date(birthday);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+};
+
 const safeUser = (u) => ({
   _id: u._id,
   name: u.name,
@@ -21,6 +36,7 @@ const safeUser = (u) => ({
   district: u.district,
   town: u.town,
   address: u.address,
+  birthday: u.birthday,
   role: u.role,
   isVerified: u.isVerified,
   verifiedAt: u.verifiedAt,
@@ -51,7 +67,9 @@ export const saveStudentGradeSelection = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (user.role !== "student") return res.status(403).json({ message: "Only students allowed" });
+    if (user.role !== "student") {
+      return res.status(403).json({ message: "Only students allowed" });
+    }
 
     if (user.gradeSelectionLocked) {
       return res.status(409).json({
@@ -71,11 +89,9 @@ export const saveStudentGradeSelection = async (req, res) => {
       return res.status(400).json({ message: "Invalid grade number" });
     }
 
-    // validate grade exists
     const gradeDoc = await Grade.findOne({ grade: gNum, isActive: true });
     if (!gradeDoc) return res.status(404).json({ message: "Grade not found" });
 
-    // boundaries
     if (level === "primary" && (gNum < 1 || gNum > 5)) {
       return res.status(400).json({ message: "Primary must be Grade 1-5" });
     }
@@ -88,7 +104,9 @@ export const saveStudentGradeSelection = async (req, res) => {
         return res.status(400).json({ message: "A/L must be Grade 12 or 13" });
       }
       const streamName = String(stream || "").trim();
-      if (!streamName) return res.status(400).json({ message: "Stream required for A/L" });
+      if (!streamName) {
+        return res.status(400).json({ message: "Stream required for A/L" });
+      }
 
       const ok = (gradeDoc.streams || []).some((s) => s?.stream === streamName);
       if (!ok) return res.status(400).json({ message: "Invalid stream" });
@@ -115,39 +133,65 @@ export const saveStudentGradeSelection = async (req, res) => {
   }
 };
 
-
 /* ==========================
    ADMIN CRUD USERS
 ========================== */
 export const createUser = async (req, res) => {
   try {
-    const { name, email, whatsappnumber, district, town, address, password, role } = req.body;
+    const {
+      name,
+      email,
+      whatsappnumber,
+      district,
+      town,
+      address,
+      birthday,
+      password,
+      role,
+    } = req.body;
 
     if (!name || !email || !whatsappnumber || !password || !role) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     if (!["admin", "teacher", "student"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role. Must be admin, teacher, or student." });
+      return res
+        .status(400)
+        .json({ message: "Invalid role. Must be admin, teacher, or student." });
     }
 
-    if (role === "student" && (!district || !town || !address)) {
-      return res.status(400).json({ message: "Student must provide district, town, address" });
+    if (role === "student") {
+      const normalizedDistrict = normalizeDistrict(district);
+      const birthdayDate = parseBirthday(birthday);
+
+      if (!normalizedDistrict || !town || !address || !birthdayDate) {
+        return res.status(400).json({
+          message:
+            "Student must provide valid district, town, address, birthday",
+        });
+      }
     }
 
     if (!SL_PHONE_REGEX.test(String(whatsappnumber).trim())) {
       return res.status(400).json({
-        message: "Invalid Sri Lankan phone number. Use 0XXXXXXXXX or +94XXXXXXXXX",
+        message:
+          "Invalid Sri Lankan phone number. Use 0XXXXXXXXX or +94XXXXXXXXX",
       });
     }
 
     const normalizedPhone = normalizeSLPhone(whatsappnumber);
 
-    const existsEmail = await User.findOne({ email: String(email).toLowerCase().trim() });
-    if (existsEmail) return res.status(409).json({ message: "Email already in use" });
+    const existsEmail = await User.findOne({
+      email: String(email).toLowerCase().trim(),
+    });
+    if (existsEmail) {
+      return res.status(409).json({ message: "Email already in use" });
+    }
 
     const existsPhone = await User.findOne({ phonenumber: normalizedPhone });
-    if (existsPhone) return res.status(409).json({ message: "WhatsApp number already in use" });
+    if (existsPhone) {
+      return res.status(409).json({ message: "WhatsApp number already in use" });
+    }
 
     const hashed = await bcrypt.hash(String(password), 10);
 
@@ -155,9 +199,10 @@ export const createUser = async (req, res) => {
       name,
       email: String(email).toLowerCase().trim(),
       phonenumber: normalizedPhone,
-      district: role === "student" ? district : "",
+      district: role === "student" ? normalizeDistrict(district) : "",
       town: role === "student" ? town : "",
       address: role === "student" ? address : "",
+      birthday: role === "student" ? parseBirthday(birthday) : null,
       password: hashed,
       role,
 
@@ -170,7 +215,9 @@ export const createUser = async (req, res) => {
     return res.status(201).json({ message: "User created", user: safeUser(user) });
   } catch (err) {
     console.error("createUser error:", err);
-    if (err.code === 11000) return res.status(409).json({ message: "Duplicate email or phone" });
+    if (err.code === 11000) {
+      return res.status(409).json({ message: "Duplicate email or phone" });
+    }
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -198,7 +245,18 @@ export const getUserById = async (req, res) => {
 
 export const updateUser = async (req, res) => {
   try {
-    const { name, email, whatsappnumber, district, town, address, password, role } = req.body;
+    const {
+      name,
+      email,
+      whatsappnumber,
+      district,
+      town,
+      address,
+      birthday,
+      password,
+      role,
+    } = req.body;
+
     const updateData = {};
 
     if (name) updateData.name = name;
@@ -206,7 +264,9 @@ export const updateUser = async (req, res) => {
 
     if (role) {
       if (!["admin", "teacher", "student"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role. Must be admin, teacher, or student." });
+        return res
+          .status(400)
+          .json({ message: "Invalid role. Must be admin, teacher, or student." });
       }
       updateData.role = role;
 
@@ -220,18 +280,33 @@ export const updateUser = async (req, res) => {
     if (whatsappnumber) {
       if (!SL_PHONE_REGEX.test(String(whatsappnumber).trim())) {
         return res.status(400).json({
-          message: "Invalid Sri Lankan phone number. Use 0XXXXXXXXX or +94XXXXXXXXX",
+          message:
+            "Invalid Sri Lankan phone number. Use 0XXXXXXXXX or +94XXXXXXXXX",
         });
       }
       updateData.phonenumber = normalizeSLPhone(whatsappnumber);
-
       updateData.isVerified = false;
       updateData.verifiedAt = null;
     }
 
-    if (district !== undefined) updateData.district = district;
+    if (district !== undefined) {
+      const normalizedDistrict = normalizeDistrict(district);
+      if (district && !normalizedDistrict) {
+        return res.status(400).json({ message: "Invalid district value" });
+      }
+      updateData.district = normalizedDistrict;
+    }
+
     if (town !== undefined) updateData.town = town;
     if (address !== undefined) updateData.address = address;
+
+    if (birthday !== undefined) {
+      const parsed = parseBirthday(birthday);
+      if (birthday && !parsed) {
+        return res.status(400).json({ message: "Invalid birthday" });
+      }
+      updateData.birthday = parsed;
+    }
 
     if (password) updateData.password = await bcrypt.hash(String(password), 10);
 
@@ -245,7 +320,9 @@ export const updateUser = async (req, res) => {
     return res.status(200).json({ message: "User updated", user: safeUser(updated) });
   } catch (err) {
     console.error("updateUser error:", err);
-    if (err.code === 11000) return res.status(409).json({ message: "Duplicate email or phone" });
+    if (err.code === 11000) {
+      return res.status(409).json({ message: "Duplicate email or phone" });
+    }
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -265,7 +342,9 @@ export const approveTeacher = async (req, res) => {
   try {
     const teacher = await User.findById(req.params.id);
     if (!teacher) return res.status(404).json({ message: "User not found" });
-    if (teacher.role !== "teacher") return res.status(400).json({ message: "This user is not a teacher" });
+    if (teacher.role !== "teacher") {
+      return res.status(400).json({ message: "This user is not a teacher" });
+    }
 
     teacher.isApproved = true;
     teacher.approvedAt = new Date();
@@ -273,7 +352,10 @@ export const approveTeacher = async (req, res) => {
 
     await teacher.save();
 
-    return res.status(200).json({ message: "Teacher approved successfully", user: safeUser(teacher) });
+    return res.status(200).json({
+      message: "Teacher approved successfully",
+      user: safeUser(teacher),
+    });
   } catch (err) {
     console.error("approveTeacher error:", err);
     return res.status(500).json({ message: "Internal server error" });
@@ -284,7 +366,9 @@ export const rejectTeacher = async (req, res) => {
   try {
     const teacher = await User.findById(req.params.id);
     if (!teacher) return res.status(404).json({ message: "User not found" });
-    if (teacher.role !== "teacher") return res.status(400).json({ message: "This user is not a teacher" });
+    if (teacher.role !== "teacher") {
+      return res.status(400).json({ message: "This user is not a teacher" });
+    }
 
     teacher.isApproved = false;
     teacher.approvedAt = null;
@@ -292,10 +376,12 @@ export const rejectTeacher = async (req, res) => {
 
     await teacher.save();
 
-    return res.status(200).json({ message: "Teacher rejected successfully", user: safeUser(teacher) });
+    return res.status(200).json({
+      message: "Teacher rejected successfully",
+      user: safeUser(teacher),
+    });
   } catch (err) {
     console.error("rejectTeacher error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
