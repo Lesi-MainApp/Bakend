@@ -54,6 +54,7 @@ const safeUser = (u) => ({
 
 const generateOtp = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
+
 const hashOtp = (code) =>
   crypto.createHash("sha256").update(String(code)).digest("hex");
 
@@ -95,6 +96,18 @@ const sendOtpBoth = async ({ phone, email, otp, purpose }) => {
       console.error("Email OTP send failed:", e);
     }
   }
+};
+
+const findUserByIdentifier = async (identifier) => {
+  const raw = String(identifier || "").trim();
+  if (!raw) return null;
+
+  if (raw.includes("@")) {
+    return User.findOne({ email: raw.toLowerCase() });
+  }
+
+  const normalizedPhone = normalizeSLPhone(raw);
+  return User.findOne({ phonenumber: normalizedPhone });
 };
 
 export const signUp = async (req, res) => {
@@ -278,27 +291,56 @@ export const signUp = async (req, res) => {
 
 export const verifyCode = async (req, res) => {
   try {
-    const { phonenumber, code } = req.body;
-    if (!phonenumber || !code) {
-      return res
-        .status(400)
-        .json({ message: "phonenumber and code are required" });
+    const { phonenumber, identifier, code, purpose } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ message: "code is required" });
     }
 
-    const normalizedPhone = normalizeSLPhone(phonenumber);
+    const otpPurpose =
+      purpose === "reset_password" ? "reset_password" : "verify_phone";
+
+    let user = null;
+    let normalizedPhone = "";
+
+    if (otpPurpose === "reset_password") {
+      const lookup = String(identifier || phonenumber || "").trim();
+      if (!lookup) {
+        return res
+          .status(400)
+          .json({ message: "identifier is required for reset password OTP" });
+      }
+
+      user = await findUserByIdentifier(lookup);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      normalizedPhone = user.phonenumber;
+    } else {
+      if (!phonenumber) {
+        return res
+          .status(400)
+          .json({ message: "phonenumber and code are required" });
+      }
+
+      normalizedPhone = normalizeSLPhone(phonenumber);
+    }
 
     const otpDoc = await Otp.findOne({
       phonenumber: normalizedPhone,
-      purpose: "verify_phone",
+      purpose: otpPurpose,
       consumedAt: null,
     }).sort({ createdAt: -1 });
 
     if (!otpDoc) {
       return res.status(400).json({ message: "No OTP found. Please resend code." });
     }
+
     if (Date.now() > new Date(otpDoc.expiresAt).getTime()) {
       return res.status(400).json({ message: "Code expired" });
     }
+
     if (otpDoc.attempts >= otpDoc.maxAttempts) {
       return res.status(429).json({ message: "Too many attempts" });
     }
@@ -307,19 +349,31 @@ export const verifyCode = async (req, res) => {
     otpDoc.attempts += 1;
     await otpDoc.save();
 
-    if (!isMatch) return res.status(400).json({ message: "Invalid code" });
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid code" });
+    }
 
     otpDoc.consumedAt = new Date();
     await otpDoc.save();
 
-    const user = await User.findOne({ phonenumber: normalizedPhone });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (otpPurpose === "verify_phone") {
+      user = await User.findOne({ phonenumber: normalizedPhone });
+      if (!user) return res.status(404).json({ message: "User not found" });
 
-    user.isVerified = true;
-    user.verifiedAt = new Date();
-    await user.save();
+      user.isVerified = true;
+      user.verifiedAt = new Date();
+      await user.save();
 
-    return res.status(200).json({ message: "Phone verified", user: safeUser(user) });
+      return res.status(200).json({
+        message: "Phone verified",
+        user: safeUser(user),
+      });
+    }
+
+    return res.status(200).json({
+      message: "Reset OTP verified",
+      identifier: identifier || user?.email || user?.phonenumber || "",
+    });
   } catch (err) {
     console.error("verifyCode error:", err);
     return res.status(500).json({ message: "Internal server error" });
@@ -337,7 +391,9 @@ export const sendVerificationCode = async (req, res) => {
     const user = await User.findOne({ phonenumber: normalizedPhone });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.isVerified) return res.status(200).json({ message: "Already verified" });
+    if (user.isVerified) {
+      return res.status(200).json({ message: "Already verified" });
+    }
 
     await Otp.deleteMany({
       phonenumber: normalizedPhone,
@@ -374,7 +430,7 @@ export const sendVerificationCode = async (req, res) => {
 
 export const signIn = async (req, res) => {
   try {
-    const { phonenumber, whatsappnumber, password } = req.body;
+    const { phonenumber, whatsappnumber, password, clientType } = req.body;
     const phoneInput = phonenumber || whatsappnumber;
 
     if (!phoneInput || !password) {
@@ -388,19 +444,32 @@ export const signIn = async (req, res) => {
     const user = await User.findOne({ phonenumber: normalizedPhone }).select(
       "+password"
     );
-    if (!user) return res.status(401).json({ message: "Invalid phone or password" });
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid phone or password" });
+    }
 
     if (!user.isVerified) {
       return res
         .status(403)
         .json({ message: "Phone not verified. Please verify OTP first." });
     }
+
+    if (clientType === "student_app" && user.role !== "student") {
+      return res.status(403).json({
+        message:
+          "This mobile app is only for student accounts. Please use the teacher/admin web panel.",
+      });
+    }
+
     if (user.role === "teacher" && !user.isApproved) {
       return res.status(403).json({ message: "Teacher not approved yet." });
     }
 
     const ok = await bcrypt.compare(String(password), user.password);
-    if (!ok) return res.status(401).json({ message: "Invalid phone or password" });
+    if (!ok) {
+      return res.status(401).json({ message: "Invalid phone or password" });
+    }
 
     const token = issueToken(user._id);
     setAuthCookie(res, token);
@@ -421,9 +490,146 @@ export const signOut = async (req, res) => {
   return res.status(200).json({ message: "Signed out successfully" });
 };
 
-export const forgotPasswordSendOtp = async (req, res) =>
-  res.status(501).json({ message: "Implement / keep your existing" });
-export const forgotPasswordReset = async (req, res) =>
-  res.status(501).json({ message: "Implement / keep your existing" });
+export const forgotPasswordSendOtp = async (req, res) => {
+  try {
+    const { identifier } = req.body;
+    const raw = String(identifier || "").trim();
+
+    if (!raw) {
+      return res
+        .status(400)
+        .json({ message: "Please enter your email or phone number" });
+    }
+
+    const user = await findUserByIdentifier(raw);
+    if (!user) {
+      return res.status(404).json({ message: "No account found for this email or phone number" });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({
+        message: "This account is not verified yet. Please complete signup OTP verification first.",
+      });
+    }
+
+    await Otp.deleteMany({
+      phonenumber: user.phonenumber,
+      purpose: "reset_password",
+      consumedAt: null,
+    });
+
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+    await Otp.create({
+      phonenumber: user.phonenumber,
+      email: user.email || "",
+      codeHash: hashOtp(otp),
+      purpose: "reset_password",
+      expiresAt,
+      attempts: 0,
+      maxAttempts: 5,
+    });
+
+    await sendOtpBoth({
+      phone: user.phonenumber,
+      email: user.email,
+      otp,
+      purpose: "reset_password",
+    });
+
+    return res.status(200).json({
+      message: "OTP sent to your WhatsApp and email",
+      phone: user.phonenumber,
+      email: user.email,
+    });
+  } catch (err) {
+    console.error("forgotPasswordSendOtp error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const forgotPasswordReset = async (req, res) => {
+  try {
+    const { identifier, code, newPassword, confirmPassword } = req.body;
+
+    const raw = String(identifier || "").trim();
+    if (!raw) {
+      return res
+        .status(400)
+        .json({ message: "identifier is required" });
+    }
+
+    if (!code || String(code).trim().length !== 6) {
+      return res.status(400).json({ message: "Valid 6 digit OTP is required" });
+    }
+
+    if (!newPassword || !confirmPassword) {
+      return res
+        .status(400)
+        .json({ message: "New password and confirm password are required" });
+    }
+
+    if (String(newPassword) !== String(confirmPassword)) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
+    }
+
+    const user = await findUserByIdentifier(raw);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const otpDoc = await Otp.findOne({
+      phonenumber: user.phonenumber,
+      purpose: "reset_password",
+    }).sort({ createdAt: -1 });
+
+    if (!otpDoc) {
+      return res.status(400).json({ message: "No reset OTP found. Please request a new OTP." });
+    }
+
+    if (Date.now() > new Date(otpDoc.expiresAt).getTime()) {
+      return res.status(400).json({ message: "Code expired" });
+    }
+
+    const isMatch = hashOtp(code) === otpDoc.codeHash;
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid code" });
+    }
+
+    if (!otpDoc.consumedAt) {
+      otpDoc.consumedAt = new Date();
+      await otpDoc.save();
+    }
+
+    user.password = await bcrypt.hash(String(newPassword), 10);
+    await user.save();
+
+    if (user.role === "student") {
+      const token = issueToken(user._id);
+      setAuthCookie(res, token);
+
+      return res.status(200).json({
+        message: "Password reset successful",
+        token,
+        user: safeUser(user),
+      });
+    }
+
+    return res.status(200).json({
+      message: "Password reset successful. Please sign in from your web panel.",
+    });
+  } catch (err) {
+    console.error("forgotPasswordReset error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 export const submitStudentDetails = async (req, res) =>
   res.status(501).json({ message: "Optional / keep your existing" });
