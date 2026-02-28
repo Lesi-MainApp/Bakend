@@ -21,9 +21,15 @@ import rankRouter from "./api/rank.js";
 import attemptRouter from "./api/attempt.js";
 import uploadRouter from "./api/upload.js";
 import languageRouter from "./api/language.js";
-import studentRouter from "./api/student.js";
-// ✅ NEW
 import progressRouter from "./api/progressbar.js";
+import enrollTecherssubjectRouter from "./api/EnrollTecherssubject.js";
+import techerspaperreportRouter from "./api/Techerspaperreport.js";
+import teachersAssignedClassReportRouter from "./api/TeachersAssignedClassReport.js";
+import teachersAssignedResultReportRouter from "./api/TeachersAssignedResultReport.js";
+import studentRouter from "./api/student.js";
+
+// ✅ NEW
+import adminResultReportRouter from "./api/AdminResultReport.js";
 
 const app = express();
 
@@ -48,13 +54,9 @@ app.use(
 );
 
 app.use(express.json({ limit: "15mb" }));
-
-// ✅ IMPORTANT for PayHere notify (urlencoded)
 app.use(express.urlencoded({ extended: true }));
-
 app.use(cookieParser());
 
-app.use("/api/student", studentRouter);
 // routes
 app.use("/api/auth", authRouter);
 app.use("/api/user", userRouter);
@@ -68,13 +70,18 @@ app.use("/api/rank", rankRouter);
 app.use("/api/paper", paperRouter);
 app.use("/api/question", questionRouter);
 app.use("/api/payment", paymentRouter);
-
 app.use("/api/attempt", attemptRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/language", languageRouter);
+app.use("/api/progress", progressRouter);
+app.use("/api/teacher-enroll-subject", enrollTecherssubjectRouter);
+app.use("/api/teachers-paper-report", techerspaperreportRouter);
+app.use("/api/teachers-assigned-class-report", teachersAssignedClassReportRouter);
+app.use("/api/teachers-assigned-result-report", teachersAssignedResultReportRouter);
+app.use("/api/student", studentRouter);
 
 // ✅ NEW
-app.use("/api/progress", progressRouter);
+app.use("/api/admin-result-report", adminResultReportRouter);
 
 // error handler
 app.use(GlobalErrorHandler);
@@ -89,4 +96,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("✅ Mounted routes: /api/attempt");
   console.log("✅ Mounted routes: /api/payment");
   console.log("✅ Mounted routes: /api/progress");
+  console.log("✅ Mounted routes: /api/teacher-enroll-subject");
+  console.log("✅ Mounted routes: /api/teachers-paper-report");
+  console.log("✅ Mounted routes: /api/teachers-assigned-class-report");
+  console.log("✅ Mounted routes: /api/teachers-assigned-result-report");
+  console.log("✅ Mounted routes: /api/student");
+  console.log("✅ Mounted routes: /api/admin-result-report");
 });
